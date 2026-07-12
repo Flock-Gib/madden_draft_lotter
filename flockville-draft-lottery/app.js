@@ -121,9 +121,22 @@ function renderTeams() {
 
     row.querySelector(".team-name-edit").addEventListener("change", (event) => {
       const oldName = team.name;
-      const newName = event.target.value.trim() || oldName;
+      const attemptedName = event.target.value.trim();
+      const newName = attemptedName || oldName;
+
+      const duplicateExists = state.teams.some(
+        (entry) => entry.id !== team.id && entry.name.toLowerCase() === newName.toLowerCase()
+      );
+
+      if (duplicateExists) {
+        showToast("That team name already exists.");
+        event.target.value = oldName;
+        return;
+      }
+
       team.name = newName;
       if (team.owner === oldName) team.owner = newName;
+      state.results = [];
       render();
     });
 
@@ -216,23 +229,46 @@ function applyBottomFourProtection(results, allEntries) {
   const protectedIds = new Set(allEntries.slice(0, 4).map((team) => team.id));
   const maxProtectedPick = Math.min(8, results.length);
 
-  for (const protectedId of protectedIds) {
-    const currentIndex = results.findIndex((result) => result.id === protectedId);
+  const top = results.slice(0, maxProtectedPick);
+  const rest = results.slice(maxProtectedPick);
 
-    if (currentIndex > maxProtectedPick - 1) {
-      const swapIndex = maxProtectedPick - 1;
-      [results[currentIndex], results[swapIndex]] = [results[swapIndex], results[currentIndex]];
-      results[swapIndex].note = "Moved into protected range by Bottom-Four Protection.";
-    }
+  const protectedInTop = top.filter((r) => protectedIds.has(r.id));
+  const protectedInRest = rest.filter((r) => protectedIds.has(r.id));
+
+  // Already valid — all protected teams are within the window.
+  if (protectedInRest.length === 0) return results;
+
+  // Non-protected teams currently in the top window are candidates to move out.
+  const nonProtectedInTop = top.filter((r) => !protectedIds.has(r.id));
+
+  // Build new top window: existing protected teams first, then those brought in from rest.
+  const newTop = [...protectedInTop, ...protectedInRest];
+
+  // Fill remaining top-window spots with non-protected teams that were already there.
+  while (newTop.length < maxProtectedPick && nonProtectedInTop.length) {
+    newTop.push(nonProtectedInTop.shift());
   }
 
-  return results;
+  // Build rest: all results not used in newTop, preserving their original relative order.
+  const usedIds = new Set(newTop.map((r) => r.id));
+  const newRest = results.filter((r) => !usedIds.has(r.id));
+
+  // Add notes for protected teams that were moved up into the protected window.
+  const originalIndexById = new Map(results.map((r, i) => [r.id, i]));
+  newTop.forEach((r) => {
+    if (protectedIds.has(r.id) && originalIndexById.get(r.id) > maxProtectedPick - 1) {
+      r.note = "Moved into protected range by Bottom-Four Protection.";
+    }
+  });
+
+  return [...newTop, ...newRest];
 }
 
 function runLotteryCalculation() {
   const entries = buildLotteryEntries();
-  const requestedPicks = Number.parseInt(els.lotteryPickCount.value, 10) || 8;
-  const lotteryCount = Math.min(requestedPicks, entries.length);
+  const requestedPicks = Number.parseInt(els.lotteryPickCount.value, 10);
+  const safeRequested = Number.isFinite(requestedPicks) ? Math.max(1, requestedPicks) : 8;
+  const lotteryCount = Math.min(safeRequested, entries.length);
   const remaining = [...entries];
   const selected = [];
 
@@ -328,8 +364,12 @@ function buildDiscordText() {
 }
 
 async function copyDiscordResults() {
-  await navigator.clipboard.writeText(buildDiscordText());
-  showToast("Discord results copied.");
+  try {
+    await navigator.clipboard.writeText(buildDiscordText());
+    showToast("Discord results copied.");
+  } catch {
+    showToast("Clipboard blocked. Copy manually from exported JSON.");
+  }
 }
 
 function downloadJson() {
