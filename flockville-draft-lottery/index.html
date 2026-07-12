@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Flockville Madden League Draft Lottery" />
+  <title>Flockville Draft Lottery</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <header class="hero">
+      <img class="hero-logo" src="assets/flockville-logo.png" alt="Flockville logo" />
+      <div>
+        <p class="eyebrow">FLOCKVILLE LLC</p>
+        <h1>Draft Lottery</h1>
+        <p class="tagline">Fair. Competitive. No Tanking.</p>
+      </div>
+    </header>
+
+    <section class="panel controls">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">SETUP</p>
+          <h2>Lottery Teams</h2>
+        </div>
+        <div class="button-row">
+          <button id="loadDemoBtn" class="button secondary">Load Demo</button>
+          <button id="resetBtn" class="button danger">Reset</button>
+        </div>
+      </div>
+
+      <p class="helper-text">
+        Enter each non-playoff team in order from worst record to best record.
+        The first four teams receive 3 balls, the next four receive 2 balls,
+        and all remaining teams receive 1 ball.
+      </p>
+
+      <div class="add-team-row">
+        <input id="teamNameInput" type="text" maxlength="30" placeholder="Team name" />
+        <select id="pickOwnerInput" aria-label="Pick owner">
+          <option value="">Pick owned by same team</option>
+        </select>
+        <button id="addTeamBtn" class="button primary">Add Team</button>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Order</th>
+              <th>Team</th>
+              <th>Pick Owner</th>
+              <th>Balls</th>
+              <th>Previous Top 3?</th>
+              <th>Previous #1?</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="teamTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel settings-grid">
+      <div>
+        <p class="eyebrow">RULES</p>
+        <h2>Lottery Settings</h2>
+      </div>
+
+      <label class="setting-card">
+        <span>
+          <strong>Number of lottery picks</strong>
+          <small>Default is Picks #1 through #8.</small>
+        </span>
+        <input id="lotteryPickCount" type="number" min="1" max="16" value="8" />
+      </label>
+
+      <label class="setting-card">
+        <span>
+          <strong>Bottom-four protection</strong>
+          <small>Bottom four teams cannot fall below Pick #8.</small>
+        </span>
+        <input id="bottomProtectionToggle" type="checkbox" checked />
+      </label>
+
+      <label class="setting-card">
+        <span>
+          <strong>Top-3 cooldown</strong>
+          <small>Previous Top-3 teams cannot land in the Top 3 again.</small>
+        </span>
+        <input id="topThreeCooldownToggle" type="checkbox" checked />
+      </label>
+
+      <label class="setting-card">
+        <span>
+          <strong>No consecutive #1 pick</strong>
+          <small>Last season's #1 team cannot receive #1 again.</small>
+        </span>
+        <input id="consecutiveOneToggle" type="checkbox" checked />
+      </label>
+    </section>
+
+    <section class="panel draw-panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">LIVE DRAW</p>
+          <h2>Run the Lottery</h2>
+        </div>
+        <button id="startLotteryBtn" class="button glow">Start Lottery</button>
+      </div>
+
+      <div class="machine">
+        <div class="machine-orb">
+          <div id="machineText" class="machine-text">READY</div>
+        </div>
+        <p id="statusText" class="status-text">Add teams, confirm the settings, and start the draw.</p>
+      </div>
+
+      <div id="resultsGrid" class="results-grid"></div>
+    </section>
+
+    <section class="panel export-panel">
+      <div>
+        <p class="eyebrow">SHARE</p>
+        <h2>Export Results</h2>
+        <p class="helper-text">Copy the finished draft order directly into Discord.</p>
+      </div>
+      <div class="button-row">
+        <button id="copyDiscordBtn" class="button secondary" disabled>Copy Discord Results</button>
+        <button id="downloadJsonBtn" class="button secondary" disabled>Download JSON</button>
+      </div>
+    </section>
+
+    <footer>
+      <img src="assets/flockville-lettering.png" alt="Flockville lettering logo" />
+      <p>No Cheese. Just Ball.</p>
+    </footer>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
