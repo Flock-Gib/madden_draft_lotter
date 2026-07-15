@@ -26,6 +26,8 @@
         </div>
         <div class="button-row">
           <button id="loadDemoBtn" class="button secondary">Load Demo</button>
+          <button id="loadAllNflBtn" class="button secondary">Load All 32 NFL Teams</button>
+          <button id="setupLockBtn" class="button secondary">Lock Setup</button>
           <button id="resetBtn" class="button danger">Reset</button>
         </div>
       </div>
@@ -43,6 +45,7 @@
         </select>
         <button id="addTeamBtn" class="button primary">Add Team</button>
       </div>
+      <p class="helper-text">Pick owners can be any current NFL team, even if not in the lottery list.</p>
 
       <div class="table-wrap">
         <table>
@@ -99,6 +102,22 @@
         </span>
         <input id="consecutiveOneToggle" type="checkbox" checked />
       </label>
+
+      <label class="setting-card">
+        <span>
+          <strong>Use deterministic seed</strong>
+          <small>Optional: repeatable draw output for audits.</small>
+        </span>
+        <input id="seedEnabledToggle" type="checkbox" />
+      </label>
+
+      <label class="setting-card seed-input-card">
+        <span>
+          <strong>Seed text</strong>
+          <small>Used only when deterministic seed is enabled.</small>
+        </span>
+        <input id="seedInput" type="text" maxlength="80" placeholder="e.g. Flockville-2026-S1" />
+      </label>
     </section>
 
     <section class="panel draw-panel">
@@ -118,15 +137,43 @@
       </div>
 
       <div id="resultsGrid" class="results-grid"></div>
+      <div class="button-row draw-actions">
+        <button id="finalizeSeasonBtn" class="button secondary" disabled>Finalize Season</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div>
+        <p class="eyebrow">AUDIT</p>
+        <h2>Draw Metadata</h2>
+      </div>
+      <div id="auditSummary" class="audit-summary">
+        <div class="audit-row"><strong>Last run:</strong> <span>Not run yet</span></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">SEASONS</p>
+          <h2>Season History</h2>
+          <p class="helper-text">Recent finalized seasons with #1 pick and Top 3 summary.</p>
+        </div>
+      </div>
+      <div id="seasonHistoryList" class="season-history-list">
+        <p class="helper-text">No finalized seasons yet.</p>
+      </div>
     </section>
 
     <section class="panel export-panel">
       <div>
         <p class="eyebrow">SHARE</p>
         <h2>Export Results</h2>
-        <p class="helper-text">Copy the finished draft order directly into Discord.</p>
+        <p class="helper-text">Copy the finished draft order, export JSON, or import a previous state backup.</p>
       </div>
       <div class="button-row">
+        <input id="importJsonInput" type="file" accept=".json,application/json" />
+        <button id="importJsonBtn" class="button secondary">Import JSON</button>
         <button id="copyDiscordBtn" class="button secondary" disabled>Copy Discord Results</button>
         <button id="downloadJsonBtn" class="button secondary" disabled>Download JSON</button>
       </div>
