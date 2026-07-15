@@ -457,11 +457,12 @@ function renderResults() {
   state.results.forEach((result) => {
     const card = document.createElement("article");
     card.className = "result-card";
-    const ownerText = result.owner !== result.team ? `Pick owned by ${result.owner}` : "Original team owns pick";
+    const winnerTeam = normalizeName(result.team) || normalizeName(result.name) || "Unknown team";
+    const ownerText = result.owner !== winnerTeam ? `Pick owned by ${result.owner}` : "Original team owns pick";
 
     card.innerHTML = `
       <div class="result-pick">Pick #${result.pick}</div>
-      <div class="result-team">${escapeHtml(result.team)}</div>
+      <div class="result-team">${escapeHtml(winnerTeam)}</div>
       <div class="result-owner">${escapeHtml(ownerText)}</div>
       ${result.note ? `<div class="result-note">${escapeHtml(result.note)}</div>` : ""}
     `;
@@ -689,7 +690,7 @@ function runLotteryCalculation(randomFn) {
       note = "Top-3 cooldown applied.";
     }
 
-    selected.push({ ...winner, pick, note });
+    selected.push({ ...winner, team: winner.name, pick, note });
     remaining.splice(remaining.findIndex((entry) => entry.id === winner.id), 1);
   }
 
@@ -697,6 +698,7 @@ function runLotteryCalculation(randomFn) {
   remaining.forEach((entry) => {
     selected.push({
       ...entry,
+      team: entry.name,
       pick: selected.length + 1,
       note: "Placed by reverse regular-season record.",
     });
