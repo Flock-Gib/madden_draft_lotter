@@ -12,7 +12,12 @@ A static web application for running the Flockville Madden League draft lottery.
 - Traded pick ownership
 - Animated live drawing
 - Discord-ready results
-- JSON export
+- Versioned localStorage persistence (teams, settings, results, lock state, seed, history)
+- Season finalization workflow with automatic cooldown flag rollover
+- JSON export + JSON import restore
+- Owner dropdown includes all 32 NFL teams
+- Optional deterministic seeded mode for repeatable audits
+- Draw audit metadata panel
 - Mobile-friendly layout
 - No backend or database required
 
@@ -53,6 +58,29 @@ Example:
 - The Bears' lottery entry wins Pick #1.
 - Baltimore receives Pick #1.
 
-## Notes
+## Season Workflow
 
-The app is fully client-side. Refreshing the page clears the current setup unless you export the results first.
+1. Set up teams and settings.
+2. Run lottery.
+3. Click **Finalize Season** to archive the season and prepare the next one.
+   - Teams that finished Picks #1-#3 are automatically marked `previousTopThree = true`.
+   - Only Pick #1 is marked `previousNumberOne = true`.
+   - Results are archived into season history with timestamp/top-3/#1 summary.
+
+## Persistence
+
+- The app automatically saves to browser localStorage after meaningful updates.
+- Refreshing the page restores teams, settings, history, lock state, seed config, and latest results.
+- If saved data is malformed or unsupported, the app safely falls back to defaults.
+
+## Import / Export JSON
+
+- **Download JSON** exports current setup/results/history and metadata.
+- **Import JSON** restores app state from prior export files.
+- Older exports without new fields are still accepted and defaulted safely.
+
+## Seeded Mode (Optional)
+
+- Enable **Use deterministic seed** and provide seed text to produce reproducible draws.
+- Leave it off for normal random behavior (`Math.random`).
+- Seed information is shown in audit metadata and included in exports.
