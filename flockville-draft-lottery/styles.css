@@ -479,6 +479,40 @@ th {
   color: var(--muted);
 }
 
+.history-rules-ref {
+  font-size: 0.9rem;
+}
+
+.history-details {
+  margin-top: 10px;
+}
+
+.history-details summary {
+  color: var(--purple-light);
+  cursor: pointer;
+  font-weight: 700;
+  user-select: none;
+  letter-spacing: 0.04em;
+}
+
+.history-details summary:hover {
+  color: var(--white);
+}
+
+.history-order-list {
+  margin: 8px 0 0;
+  padding-left: 22px;
+  color: var(--muted);
+}
+
+.history-order-list li {
+  padding: 2px 0;
+}
+
+.rules-effective-date {
+  margin: 0 0 10px;
+}
+
 footer {
   display: flex;
   align-items: center;

@@ -1,6 +1,7 @@
 const STORAGE_KEY = "flockvilleDraftLotteryState";
-const STORAGE_VERSION = 2;
+const STORAGE_VERSION = 3;
 const MAX_SEASON_HISTORY = 12;
+const MAX_RULE_HISTORY = 50;
 const DEFAULT_STATUS = "Add teams, confirm the settings, and start the draw.";
 
 const NFL_TEAMS = [
@@ -43,6 +44,7 @@ const state = {
   results: [],
   trades: [],
   seasonHistory: [],
+  ruleHistory: [],
   setupLocked: false,
   seedEnabled: false,
   seedText: "",
@@ -75,6 +77,8 @@ const els = {
   lotteryTransparency: document.getElementById("lotteryTransparency"),
   auditSummary: document.getElementById("auditSummary"),
   seasonHistoryList: document.getElementById("seasonHistoryList"),
+  currentRulesPanel: document.getElementById("currentRulesPanel"),
+  ruleHistoryList: document.getElementById("ruleHistoryList"),
   tradeFromInput: document.getElementById("tradeFromInput"),
   tradeToInput: document.getElementById("tradeToInput"),
   tradeAssetsInput: document.getElementById("tradeAssetsInput"),
@@ -207,8 +211,59 @@ function sanitizeSeasonHistory(list) {
         topThree,
         finalOrder,
         seed: normalizeName(entry.seed),
+        ruleVersionId: normalizeName(entry.ruleVersionId),
+        runMeta: (entry.runMeta && typeof entry.runMeta === "object") ? entry.runMeta : null,
       };
     });
+}
+
+function sanitizeRuleVersion(entry) {
+  if (!entry || typeof entry !== "object") return null;
+  const s = entry.settings && typeof entry.settings === "object" ? entry.settings : {};
+  return {
+    id: normalizeName(entry.id) || createId(),
+    effectiveAt: normalizeName(entry.effectiveAt) || new Date().toISOString(),
+    notes: normalizeName(entry.notes),
+    settings: {
+      lotteryPickCount: clampLotteryPickCount(s.lotteryPickCount ?? 8),
+      bottomFourProtection: s.bottomFourProtection ?? true,
+      topThreeCooldown: s.topThreeCooldown ?? true,
+      noConsecutiveNumberOne: s.noConsecutiveNumberOne ?? true,
+    },
+  };
+}
+
+function sanitizeRuleHistory(list) {
+  if (!Array.isArray(list)) return [];
+  return list.map(sanitizeRuleVersion).filter(Boolean);
+}
+
+function getActiveRuleVersion() {
+  return state.ruleHistory.length ? state.ruleHistory[0] : null;
+}
+
+function settingsMatchRuleVersion(settings, version) {
+  if (!version) return false;
+  const vs = version.settings;
+  return (
+    vs.lotteryPickCount === settings.lotteryPickCount &&
+    vs.bottomFourProtection === settings.bottomFourProtection &&
+    vs.topThreeCooldown === settings.topThreeCooldown &&
+    vs.noConsecutiveNumberOne === settings.noConsecutiveNumberOne
+  );
+}
+
+function snapshotRuleVersion(notes = "") {
+  const settings = getSettingsFromUi();
+  const active = getActiveRuleVersion();
+  if (settingsMatchRuleVersion(settings, active)) return;
+  state.ruleHistory.unshift({
+    id: createId(),
+    effectiveAt: new Date().toISOString(),
+    notes,
+    settings,
+  });
+  state.ruleHistory = state.ruleHistory.slice(0, MAX_RULE_HISTORY);
 }
 
 function normalizeAssets(value) {
@@ -285,6 +340,7 @@ function sanitizeImportedPayload(payload) {
     results: sanitizeResults(payload.results, payloadTeams),
     trades: sanitizeTrades(payload.trades),
     seasonHistory: sanitizeSeasonHistory(payload.seasonHistory),
+    ruleHistory: sanitizeRuleHistory(payload.ruleHistory),
     setupLocked: Boolean(payload.setupLocked),
     seedEnabled: Boolean(payload.seedEnabled),
     seedText: normalizeName(payload.seedText),
@@ -303,6 +359,7 @@ function persistState() {
       results: state.results,
       trades: state.trades,
       seasonHistory: state.seasonHistory,
+      ruleHistory: state.ruleHistory,
       setupLocked: state.setupLocked,
       seedEnabled: state.seedEnabled,
       seedText: state.seedText,
@@ -338,6 +395,7 @@ function restoreStateFromStorage() {
     state.results = restored.results;
     state.trades = restored.trades;
     state.seasonHistory = restored.seasonHistory;
+    state.ruleHistory = restored.ruleHistory;
     state.setupLocked = restored.setupLocked;
     state.seedEnabled = restored.seedEnabled;
     state.seedText = restored.seedText;
@@ -701,13 +759,76 @@ function renderSeasonHistory() {
     const item = document.createElement("article");
     item.className = "history-item";
 
+    const ruleVersion = state.ruleHistory.find((v) => v.id === season.ruleVersionId);
+    const ruleInfo = ruleVersion
+      ? `Picks: ${ruleVersion.settings.lotteryPickCount} · Bottom-4: ${ruleVersion.settings.bottomFourProtection ? "ON" : "OFF"} · Top-3 CD: ${ruleVersion.settings.topThreeCooldown ? "ON" : "OFF"} · No Consec. #1: ${ruleVersion.settings.noConsecutiveNumberOne ? "ON" : "OFF"}`
+      : "Rule version not recorded";
+
+    const finalOrderItems = (season.finalOrder || [])
+      .map((pick) => {
+        const ownerNote = pick.owner && pick.owner !== pick.team ? ` (${escapeHtml(pick.owner)})` : "";
+        return `<li>Pick #${pick.pick}: ${escapeHtml(pick.team)}${ownerNote}</li>`;
+      })
+      .join("");
+
     item.innerHTML = `
       <p class="history-item-title">${escapeHtml(formatTime(season.finalizedAt))}</p>
       <p class="history-item-line"><strong>#1:</strong> ${escapeHtml(season.numberOne || "Unknown")}</p>
       <p class="history-item-line"><strong>Top 3:</strong> ${escapeHtml((season.topThree || []).join(", ") || "N/A")}</p>
+      <p class="history-item-line history-rules-ref"><strong>Rules:</strong> ${escapeHtml(ruleInfo)}</p>
+      ${finalOrderItems ? `
+        <details class="history-details">
+          <summary>Full draw order</summary>
+          <ol class="history-order-list">${finalOrderItems}</ol>
+        </details>
+      ` : ""}
     `;
 
     els.seasonHistoryList.appendChild(item);
+  });
+}
+
+function renderCurrentRules() {
+  const active = getActiveRuleVersion();
+  if (!active) {
+    els.currentRulesPanel.innerHTML = '<p class="helper-text">No rules captured yet.</p>';
+    return;
+  }
+  const { settings, effectiveAt } = active;
+  const rows = [
+    ["Lottery picks", String(settings.lotteryPickCount)],
+    ["Bottom-four protection", settings.bottomFourProtection ? "ON" : "OFF"],
+    ["Top-3 cooldown", settings.topThreeCooldown ? "ON" : "OFF"],
+    ["No consecutive #1", settings.noConsecutiveNumberOne ? "ON" : "OFF"],
+  ];
+  els.currentRulesPanel.innerHTML = `
+    <p class="helper-text rules-effective-date">In effect since ${escapeHtml(formatTime(effectiveAt))}</p>
+    ${rows.map(([label, value]) => `<div class="audit-row"><strong>${escapeHtml(label)}:</strong> <span>${escapeHtml(value)}</span></div>`).join("")}
+  `;
+}
+
+function renderRuleHistory() {
+  const prior = state.ruleHistory.slice(1);
+  els.ruleHistoryList.innerHTML = "";
+
+  if (!prior.length) {
+    els.ruleHistoryList.innerHTML = '<p class="helper-text">No prior rule versions.</p>';
+    return;
+  }
+
+  prior.forEach((version, index) => {
+    const next = state.ruleHistory[index];
+    const { settings } = version;
+    const item = document.createElement("article");
+    item.className = "history-item";
+
+    item.innerHTML = `
+      <p class="history-item-title">Replaced ${escapeHtml(formatTime(next.effectiveAt))}</p>
+      ${version.notes ? `<p class="history-item-line"><em>${escapeHtml(version.notes)}</em></p>` : ""}
+      <p class="history-item-line">Picks: ${settings.lotteryPickCount} · Bottom-4: ${settings.bottomFourProtection ? "ON" : "OFF"} · Top-3 CD: ${settings.topThreeCooldown ? "ON" : "OFF"} · No Consec. #1: ${settings.noConsecutiveNumberOne ? "ON" : "OFF"}</p>
+    `;
+
+    els.ruleHistoryList.appendChild(item);
   });
 }
 
@@ -750,6 +871,8 @@ function render() {
   renderLotteryTransparency();
   renderAuditPanel();
   renderSeasonHistory();
+  renderCurrentRules();
+  renderRuleHistory();
   renderTrades();
   renderLockState();
   persistState();
@@ -1008,6 +1131,7 @@ function downloadJson() {
     results: state.results,
     trades: state.trades,
     seasonHistory: state.seasonHistory,
+    ruleHistory: state.ruleHistory,
   };
 
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
@@ -1031,12 +1155,14 @@ function resetApp() {
   state.results = [];
   state.trades = [];
   state.seasonHistory = [];
+  state.ruleHistory = [];
   state.setupLocked = false;
   state.seedEnabled = false;
   state.seedText = "";
   state.lastRunMeta = null;
 
   applySettingsToUi({});
+  snapshotRuleVersion("Rules reset to defaults.");
 
   els.machineText.textContent = "READY";
   els.statusText.textContent = DEFAULT_STATUS;
@@ -1135,6 +1261,8 @@ function finalizeSeason() {
     topThree: state.results.slice(0, 3).map((result) => result.team),
     finalOrder: state.results.map((result) => ({ pick: result.pick, team: result.team, owner: result.owner })),
     seed: state.lastRunMeta?.seedEnabled ? state.lastRunMeta.seed : "",
+    ruleVersionId: getActiveRuleVersion()?.id || "",
+    runMeta: state.lastRunMeta || null,
   });
 
   state.seasonHistory = state.seasonHistory.slice(0, MAX_SEASON_HISTORY);
@@ -1169,12 +1297,14 @@ async function importJson() {
     state.results = restored.results;
     state.trades = restored.trades;
     state.seasonHistory = restored.seasonHistory;
+    state.ruleHistory = restored.ruleHistory;
     state.setupLocked = restored.setupLocked;
     state.seedEnabled = restored.seedEnabled;
     state.seedText = restored.seedText;
     state.lastRunMeta = restored.lastRunMeta;
 
     applySettingsToUi(restored.settings);
+    if (!state.ruleHistory.length) snapshotRuleVersion("Rules from import.");
 
     if (!state.results.length) {
       els.machineText.textContent = "READY";
@@ -1225,6 +1355,7 @@ function handleSettingsChange() {
   state.results = [];
   state.lastRunMeta = null;
   els.statusText.textContent = DEFAULT_STATUS;
+  snapshotRuleVersion();
   render();
 }
 
@@ -1404,6 +1535,7 @@ els.seedInput.addEventListener("change", () => {
 });
 
 restoreStateFromStorage();
+if (!state.ruleHistory.length) snapshotRuleVersion("Initial rules.");
 els.seedEnabledToggle.checked = state.seedEnabled;
 els.seedInput.value = state.seedText;
 els.statusText.textContent = state.results.length ? "Previous lottery loaded from saved state." : DEFAULT_STATUS;
