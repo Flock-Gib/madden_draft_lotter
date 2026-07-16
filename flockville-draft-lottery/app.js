@@ -41,12 +41,14 @@ const NFL_TEAMS = [
 const state = {
   teams: [],
   results: [],
+  trades: [],
   seasonHistory: [],
   setupLocked: false,
   seedEnabled: false,
   seedText: "",
   lastRunMeta: null,
   isRunning: false,
+  editingTradeId: "",
 };
 
 const els = {
@@ -70,8 +72,17 @@ const els = {
   machineOrb: document.querySelector(".machine-orb"),
   statusText: document.getElementById("statusText"),
   resultsGrid: document.getElementById("resultsGrid"),
+  lotteryTransparency: document.getElementById("lotteryTransparency"),
   auditSummary: document.getElementById("auditSummary"),
   seasonHistoryList: document.getElementById("seasonHistoryList"),
+  tradeFromInput: document.getElementById("tradeFromInput"),
+  tradeToInput: document.getElementById("tradeToInput"),
+  tradeAssetsInput: document.getElementById("tradeAssetsInput"),
+  tradeNotesInput: document.getElementById("tradeNotesInput"),
+  saveTradeBtn: document.getElementById("saveTradeBtn"),
+  cancelTradeEditBtn: document.getElementById("cancelTradeEditBtn"),
+  tradeList: document.getElementById("tradeList"),
+  copyTradeDiscordBtn: document.getElementById("copyTradeDiscordBtn"),
   importJsonInput: document.getElementById("importJsonInput"),
   importJsonBtn: document.getElementById("importJsonBtn"),
   copyDiscordBtn: document.getElementById("copyDiscordBtn"),
@@ -192,6 +203,41 @@ function sanitizeSeasonHistory(list) {
     });
 }
 
+function normalizeAssets(value) {
+  if (Array.isArray(value)) {
+    return value.map((asset) => normalizeName(asset)).filter(Boolean);
+  }
+
+  return String(value || "")
+    .split("\n")
+    .map((asset) => normalizeName(asset))
+    .filter(Boolean);
+}
+
+function sanitizeTrade(trade) {
+  if (!trade || typeof trade !== "object") return null;
+  const fromTeam = normalizeName(trade.fromTeam || trade.from);
+  const toTeam = normalizeName(trade.toTeam || trade.to);
+  const assets = normalizeAssets(trade.assets);
+  const notes = normalizeName(trade.notes);
+
+  if (!fromTeam || !toTeam) return null;
+  if (!assets.length && !notes) return null;
+
+  return {
+    id: normalizeName(trade.id) || createId(),
+    fromTeam,
+    toTeam,
+    assets,
+    notes,
+  };
+}
+
+function sanitizeTrades(list) {
+  if (!Array.isArray(list)) return [];
+  return list.map((trade) => sanitizeTrade(trade)).filter(Boolean);
+}
+
 function getSettingsFromUi() {
   return {
     lotteryPickCount: clampLotteryPickCount(els.lotteryPickCount.value),
@@ -229,6 +275,7 @@ function sanitizeImportedPayload(payload) {
   return {
     teams: payloadTeams,
     results: sanitizeResults(payload.results, payloadTeams),
+    trades: sanitizeTrades(payload.trades),
     seasonHistory: sanitizeSeasonHistory(payload.seasonHistory),
     setupLocked: Boolean(payload.setupLocked),
     seedEnabled: Boolean(payload.seedEnabled),
@@ -246,6 +293,7 @@ function persistState() {
       settings: getSettingsFromUi(),
       teams: state.teams,
       results: state.results,
+      trades: state.trades,
       seasonHistory: state.seasonHistory,
       setupLocked: state.setupLocked,
       seedEnabled: state.seedEnabled,
@@ -280,6 +328,7 @@ function restoreStateFromStorage() {
     const restored = sanitizeImportedPayload(parsed);
     state.teams = restored.teams;
     state.results = restored.results;
+    state.trades = restored.trades;
     state.seasonHistory = restored.seasonHistory;
     state.setupLocked = restored.setupLocked;
     state.seedEnabled = restored.seedEnabled;
@@ -367,7 +416,11 @@ function updateTeam(id, field, value) {
 
 function renderOwnerOptions() {
   const currentValue = els.pickOwnerInput.value;
+  const currentTradeFromValue = els.tradeFromInput.value;
+  const currentTradeToValue = els.tradeToInput.value;
   els.pickOwnerInput.innerHTML = '<option value="">Pick owned by same team</option>';
+  els.tradeFromInput.innerHTML = '<option value="">From team</option>';
+  els.tradeToInput.innerHTML = '<option value="">To team</option>';
 
   const names = new Set();
   [...state.teams.map((team) => team.name), ...state.teams.map((team) => team.owner), ...NFL_TEAMS].forEach((name) => {
@@ -381,10 +434,28 @@ function renderOwnerOptions() {
     option.value = clean;
     option.textContent = clean;
     els.pickOwnerInput.appendChild(option);
+
+    const fromOption = document.createElement("option");
+    fromOption.value = clean;
+    fromOption.textContent = clean;
+    els.tradeFromInput.appendChild(fromOption);
+
+    const toOption = document.createElement("option");
+    toOption.value = clean;
+    toOption.textContent = clean;
+    els.tradeToInput.appendChild(toOption);
   });
 
   if ([...els.pickOwnerInput.options].some((option) => option.value === currentValue)) {
     els.pickOwnerInput.value = currentValue;
+  }
+
+  if ([...els.tradeFromInput.options].some((option) => option.value === currentTradeFromValue)) {
+    els.tradeFromInput.value = currentTradeFromValue;
+  }
+
+  if ([...els.tradeToInput.options].some((option) => option.value === currentTradeToValue)) {
+    els.tradeToInput.value = currentTradeToValue;
   }
 }
 
@@ -476,6 +547,95 @@ function renderResults() {
   els.finalizeSeasonBtn.disabled = !hasResults || state.isRunning;
 }
 
+function getBallGroupLabel(ballCount) {
+  return `${ballCount}-ball tier`;
+}
+
+function buildLotteryTransparencyData() {
+  const entries = buildLotteryEntries();
+  const totalBalls = entries.reduce((sum, entry) => sum + entry.balls, 0);
+  const grouped = new Map();
+
+  entries.forEach((entry) => {
+    const chance = totalBalls ? entry.balls / totalBalls : 0;
+    const key = String(entry.balls);
+    const existing = grouped.get(key) || {
+      label: getBallGroupLabel(entry.balls),
+      balls: 0,
+      entries: [],
+      percent: 0,
+    };
+
+    existing.entries.push({
+      team: entry.name,
+      balls: entry.balls,
+      percent: chance * 100,
+    });
+    existing.balls += entry.balls;
+    existing.percent += chance * 100;
+    grouped.set(key, existing);
+  });
+
+  const totalPercent = entries.reduce((sum, entry) => sum + (totalBalls ? (entry.balls / totalBalls) * 100 : 0), 0);
+
+  return {
+    entries,
+    totalBalls,
+    totalPercent,
+    groups: [...grouped.values()],
+  };
+}
+
+function renderLotteryTransparency() {
+  const data = buildLotteryTransparencyData();
+
+  if (!data.entries.length) {
+    els.lotteryTransparency.innerHTML = '<p class="helper-text">Add teams to see each team\'s weighted odds and lottery ball counts.</p>';
+    return;
+  }
+
+  const groupMarkup = data.groups
+    .map((group) => `
+      <div class="odds-group">
+        <p class="odds-group-title">${escapeHtml(group.label)} — ${group.entries.length} teams · ${group.balls} balls · ${group.percent.toFixed(1)}%</p>
+        <div class="table-wrap">
+          <table class="odds-table">
+            <thead>
+              <tr>
+                <th>Team</th>
+                <th>Balls</th>
+                <th>Chance</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${group.entries
+                .map(
+                  (entry) => `
+                    <tr>
+                      <td>${escapeHtml(entry.team)}</td>
+                      <td>${entry.balls}</td>
+                      <td>${entry.percent.toFixed(1)}%</td>
+                    </tr>
+                  `
+                )
+                .join("")}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `)
+    .join("");
+
+  els.lotteryTransparency.innerHTML = `
+    <p class="helper-text">Every ball is one weighted entry in the draw. More balls means a higher chance, and all entries are shown below from the same weighting used to run the lottery.</p>
+    ${groupMarkup}
+    <div class="odds-totals">
+      <div class="audit-row"><strong>Total balls:</strong> <span>${data.totalBalls}</span></div>
+      <div class="audit-row"><strong>Sum of displayed chances:</strong> <span>${data.totalPercent.toFixed(1)}%</span></div>
+    </div>
+  `;
+}
+
 function formatTime(isoString) {
   if (!isoString) return "Not run yet";
   const date = new Date(isoString);
@@ -563,8 +723,10 @@ function render() {
   renderOwnerOptions();
   renderTeams();
   renderResults();
+  renderLotteryTransparency();
   renderAuditPanel();
   renderSeasonHistory();
+  renderTrades();
   renderLockState();
   persistState();
 }
@@ -820,6 +982,7 @@ function downloadJson() {
     lastRunMeta: state.lastRunMeta,
     teams: state.teams,
     results: state.results,
+    trades: state.trades,
     seasonHistory: state.seasonHistory,
   };
 
@@ -842,6 +1005,7 @@ function resetApp() {
 
   state.teams = [];
   state.results = [];
+  state.trades = [];
   state.seasonHistory = [];
   state.setupLocked = false;
   state.seedEnabled = false;
@@ -979,6 +1143,7 @@ async function importJson() {
 
     state.teams = restored.teams;
     state.results = restored.results;
+    state.trades = restored.trades;
     state.seasonHistory = restored.seasonHistory;
     state.setupLocked = restored.setupLocked;
     state.seedEnabled = restored.seedEnabled;
@@ -1039,6 +1204,127 @@ function handleSettingsChange() {
   render();
 }
 
+function resetTradeForm() {
+  state.editingTradeId = "";
+  els.tradeFromInput.value = "";
+  els.tradeToInput.value = "";
+  els.tradeAssetsInput.value = "";
+  els.tradeNotesInput.value = "";
+  els.saveTradeBtn.textContent = "Add Trade";
+  els.cancelTradeEditBtn.hidden = true;
+}
+
+function getTradeFormData() {
+  return {
+    fromTeam: normalizeName(els.tradeFromInput.value),
+    toTeam: normalizeName(els.tradeToInput.value),
+    assets: normalizeAssets(els.tradeAssetsInput.value),
+    notes: normalizeName(els.tradeNotesInput.value),
+  };
+}
+
+function saveTrade() {
+  const trade = getTradeFormData();
+  if (!trade.fromTeam || !trade.toTeam) {
+    showToast("Choose both a source and destination team.");
+    return;
+  }
+
+  if (!trade.assets.length && !trade.notes) {
+    showToast("Add at least one moved asset or note.");
+    return;
+  }
+
+  if (state.editingTradeId) {
+    state.trades = state.trades.map((entry) => (entry.id === state.editingTradeId ? { ...entry, ...trade } : entry));
+    showToast("Trade updated.");
+  } else {
+    state.trades.push({ id: createId(), ...trade });
+    showToast("Trade added.");
+  }
+
+  resetTradeForm();
+  render();
+}
+
+function editTrade(id) {
+  const trade = state.trades.find((entry) => entry.id === id);
+  if (!trade) return;
+
+  state.editingTradeId = id;
+  els.tradeFromInput.value = trade.fromTeam;
+  els.tradeToInput.value = trade.toTeam;
+  els.tradeAssetsInput.value = trade.assets.join("\n");
+  els.tradeNotesInput.value = trade.notes;
+  els.saveTradeBtn.textContent = "Save Trade";
+  els.cancelTradeEditBtn.hidden = false;
+}
+
+function removeTrade(id) {
+  state.trades = state.trades.filter((entry) => entry.id !== id);
+  if (state.editingTradeId === id) resetTradeForm();
+  render();
+  showToast("Trade removed.");
+}
+
+function buildTradeDiscordText(trades = state.trades) {
+  const lines = ["# FLOCKVILLE TRADE LIST", ""];
+
+  trades.forEach((trade, index) => {
+    lines.push(`${index + 1}. ${trade.fromTeam} -> ${trade.toTeam}`);
+    trade.assets.forEach((asset) => lines.push(`   - ${asset}`));
+    if (trade.notes) lines.push(`   - Notes: ${trade.notes}`);
+    lines.push("");
+  });
+
+  return lines.join("\n").trimEnd();
+}
+
+async function copyTradeDiscordList() {
+  if (!state.trades.length) return;
+  try {
+    await navigator.clipboard.writeText(buildTradeDiscordText());
+    showToast("Trade list copied for Discord.");
+  } catch {
+    showToast("Clipboard blocked. Copy manually from the trade list.");
+  }
+}
+
+function renderTrades() {
+  els.tradeList.innerHTML = "";
+
+  if (!state.trades.length) {
+    els.tradeList.innerHTML = '<p class="helper-text">No trades added yet. Add a trade above to build a Discord-ready list.</p>';
+    els.copyTradeDiscordBtn.disabled = true;
+    return;
+  }
+
+  state.trades.forEach((trade, index) => {
+    const item = document.createElement("article");
+    item.className = "trade-item";
+
+    item.innerHTML = `
+      <div class="trade-item-head">
+        <p class="trade-item-title">${index + 1}. ${escapeHtml(trade.fromTeam)} → ${escapeHtml(trade.toTeam)}</p>
+        <div class="button-row">
+          <button class="button secondary trade-edit-btn">Edit</button>
+          <button class="button danger trade-remove-btn">Remove</button>
+        </div>
+      </div>
+      <ul class="trade-assets">
+        ${trade.assets.map((asset) => `<li>${escapeHtml(asset)}</li>`).join("")}
+        ${trade.notes ? `<li><strong>Notes:</strong> ${escapeHtml(trade.notes)}</li>` : ""}
+      </ul>
+    `;
+
+    item.querySelector(".trade-edit-btn").addEventListener("click", () => editTrade(trade.id));
+    item.querySelector(".trade-remove-btn").addEventListener("click", () => removeTrade(trade.id));
+    els.tradeList.appendChild(item);
+  });
+
+  els.copyTradeDiscordBtn.disabled = false;
+}
+
 els.addTeamBtn.addEventListener("click", () => {
   addTeam(els.teamNameInput.value, els.pickOwnerInput.value);
   els.teamNameInput.value = "";
@@ -1058,6 +1344,12 @@ els.finalizeSeasonBtn.addEventListener("click", finalizeSeason);
 els.copyDiscordBtn.addEventListener("click", copyDiscordResults);
 els.downloadJsonBtn.addEventListener("click", downloadJson);
 els.importJsonBtn.addEventListener("click", importJson);
+els.saveTradeBtn.addEventListener("click", saveTrade);
+els.cancelTradeEditBtn.addEventListener("click", () => {
+  resetTradeForm();
+  render();
+});
+els.copyTradeDiscordBtn.addEventListener("click", copyTradeDiscordList);
 
 els.setupLockBtn.addEventListener("click", () => {
   if (state.isRunning) return;
@@ -1091,4 +1383,5 @@ restoreStateFromStorage();
 els.seedEnabledToggle.checked = state.seedEnabled;
 els.seedInput.value = state.seedText;
 els.statusText.textContent = state.results.length ? "Previous lottery loaded from saved state." : DEFAULT_STATUS;
+resetTradeForm();
 render();

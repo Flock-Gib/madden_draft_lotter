@@ -12,7 +12,9 @@ A static web application for running the Flockville Madden League draft lottery.
 - Traded pick ownership
 - Animated live drawing
 - Discord-ready results
-- Versioned localStorage persistence (teams, settings, results, lock state, seed, history)
+- Lottery transparency panel with team-by-team balls, odds %, and tier subtotals
+- Trade list builder with Discord-ready copy export
+- Versioned localStorage persistence (teams, settings, results, trades, lock state, seed, history)
 - Season finalization workflow with automatic cooldown flag rollover
 - JSON export + JSON import restore
 - Owner dropdown includes all 32 NFL teams
