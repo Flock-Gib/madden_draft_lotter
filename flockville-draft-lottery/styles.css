@@ -29,7 +29,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -172,7 +173,8 @@ h2 {
 }
 
 input,
-select {
+select,
+textarea {
   width: 100%;
   min-height: 44px;
   padding: 10px 12px;
@@ -183,9 +185,14 @@ select {
 }
 
 input:focus,
-select:focus {
+select:focus,
+textarea:focus {
   outline: 2px solid rgba(122, 34, 255, 0.56);
   border-color: var(--purple-light);
+}
+
+textarea {
+  resize: vertical;
 }
 
 .table-wrap {
@@ -387,6 +394,74 @@ th {
   margin-top: 12px;
 }
 
+.lottery-transparency {
+  margin-top: 12px;
+  display: grid;
+  gap: 12px;
+}
+
+.odds-group {
+  padding: 12px;
+  border: 1px solid rgba(185, 140, 255, 0.2);
+  border-radius: 12px;
+  background: rgba(6, 4, 10, 0.32);
+}
+
+.odds-group-title {
+  margin: 0 0 8px;
+  color: var(--purple-light);
+  font-weight: 700;
+}
+
+.odds-table {
+  min-width: 500px;
+}
+
+.odds-totals {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(185, 140, 255, 0.2);
+  border-radius: 12px;
+  background: rgba(6, 4, 10, 0.32);
+}
+
+.trade-form-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr 1fr;
+  margin: 12px 0;
+}
+
+.trade-list {
+  margin-top: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.trade-item {
+  padding: 12px;
+  border: 1px solid rgba(185, 140, 255, 0.2);
+  border-radius: 12px;
+  background: rgba(6, 4, 10, 0.32);
+}
+
+.trade-item-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.trade-item-title {
+  margin: 0;
+  font-weight: 700;
+}
+
+.trade-assets {
+  margin: 8px 0 0;
+}
+
 .history-item {
   padding: 12px;
   border: 1px solid rgba(185, 140, 255, 0.2);
@@ -457,6 +532,7 @@ footer img {
   }
 
   .add-team-row,
+  .trade-form-grid,
   .settings-grid,
   .results-grid {
     grid-template-columns: 1fr;

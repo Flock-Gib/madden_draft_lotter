@@ -144,6 +144,15 @@
 
     <section class="panel">
       <div>
+        <p class="eyebrow">TRANSPARENCY</p>
+        <h2>Lottery Odds Breakdown</h2>
+        <p class="helper-text">See each team's exact weighted entries and chance to win so everyone can verify the draw setup is fair.</p>
+      </div>
+      <div id="lotteryTransparency" class="lottery-transparency"></div>
+    </section>
+
+    <section class="panel">
+      <div>
         <p class="eyebrow">AUDIT</p>
         <h2>Draw Metadata</h2>
       </div>
@@ -162,6 +171,36 @@
       </div>
       <div id="seasonHistoryList" class="season-history-list">
         <p class="helper-text">No finalized seasons yet.</p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">TRADES</p>
+          <h2>Trade List Builder</h2>
+          <p class="helper-text">Track each trade and copy a clean Discord-ready summary with one click.</p>
+        </div>
+        <button id="copyTradeDiscordBtn" class="button secondary" disabled>Copy Discord Trade List</button>
+      </div>
+
+      <div class="trade-form-grid">
+        <select id="tradeFromInput" aria-label="Trade source team">
+          <option value="">From team</option>
+        </select>
+        <select id="tradeToInput" aria-label="Trade destination team">
+          <option value="">To team</option>
+        </select>
+      </div>
+      <textarea id="tradeAssetsInput" rows="4" placeholder="Moved assets (one per line, e.g. 2027 Round 1 Pick)"></textarea>
+      <input id="tradeNotesInput" type="text" maxlength="120" placeholder="Optional notes (players, conditions, cash, etc.)" />
+      <div class="button-row">
+        <button id="saveTradeBtn" class="button primary">Add Trade</button>
+        <button id="cancelTradeEditBtn" class="button secondary" hidden>Cancel Edit</button>
+      </div>
+
+      <div id="tradeList" class="trade-list">
+        <p class="helper-text">No trades added yet. Add a trade above to build a Discord-ready list.</p>
       </div>
     </section>
 
