@@ -470,7 +470,7 @@ th {
 }
 
 .history-item-title {
-  margin: 0 0 6px;
+  margin: 0;
   color: var(--purple-light);
 }
 
@@ -511,6 +511,54 @@ th {
 
 .rules-effective-date {
   margin: 0 0 10px;
+}
+
+.trade-item-title-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.trade-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.trade-timestamp {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.trade-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.trade-badge-auto {
+  background: rgba(122, 34, 255, 0.25);
+  border: 1px solid rgba(185, 140, 255, 0.4);
+  color: var(--purple-light);
+}
+
+.trade-badge-manual {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(185, 140, 255, 0.2);
+  color: var(--muted);
+}
+
+.history-item-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
 }
 
 footer {

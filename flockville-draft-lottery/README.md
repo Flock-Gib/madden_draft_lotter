@@ -14,7 +14,10 @@ A static web application for running the Flockville Madden League draft lottery.
 - Discord-ready results
 - Lottery transparency panel with team-by-team balls, odds %, and tier subtotals
 - Trade list builder with Discord-ready copy export
+- **Auto-generated trades** — one click generates trade entries for every pick where ownership differs from the lottery team
+- **Enhanced trade cards** — each card shows from/to teams, assets, notes, timestamp, and manual/auto-generated badge
 - **Lottery history** — full draw order per finalized season, linked to the rule version in effect
+- **Season Discord export** — copy any individual season as a Discord announcement; copy all seasons at once
 - **Rule tracking** — active rules are always visible; every settings change creates a versioned rule snapshot
 - Versioned localStorage persistence (teams, settings, results, trades, lock state, seed, history, rule history)
 - Season finalization workflow with automatic cooldown flag rollover
@@ -62,7 +65,40 @@ Example:
 - The Bears' lottery entry wins Pick #1.
 - Baltimore receives Pick #1.
 
-## Season Workflow
+## Auto-Generated Trades
+
+After running the lottery, click **Generate Trades from Results** in the draw panel. The app inspects every result where the pick owner differs from the lottery team and creates a trade entry automatically:
+
+- **From team** — the team that gave up the pick (original lottery entrant).
+- **To team** — the current pick owner who will receive the selection.
+- **Asset** — labeled `Pick #N (from lottery draw)`.
+- **Notes** — marked *Auto-generated from lottery results*.
+
+Auto-generated trades are labeled with an **Auto-generated** badge in the trade card. Duplicate entries are skipped if the same traded pick already has an auto-generated trade. You can edit or remove auto-generated trades just like manual ones.
+
+## Discord Exports
+
+### Copy Lottery Announcement
+
+Click **Copy Lottery Announcement** in the Live Draw section after running the lottery. This copies the full draft order with pick ownership details in Discord-ready format.
+
+### Copy Discord Trade List
+
+Click **Copy Discord Trade List** in the Trades section. Exports all current trades as a numbered list suitable for pasting directly into Discord.
+
+### Copy Season Recap (latest season)
+
+Click **Copy Season Recap** in the Lottery History section header. Copies the most recently finalized season as a Discord announcement block including full draw order.
+
+### Copy Announcement (individual season)
+
+Each season card in Lottery History has a **Copy Announcement** button. Click it to copy that specific season's results as a Discord-ready block.
+
+### Copy All Season History
+
+Click **Copy All Season History** in the Export Results section. Copies all finalized seasons in chronological order, separated by horizontal dividers, suitable for a full Discord recap post.
+
+
 
 1. Set up teams and settings.
 2. Run lottery.
@@ -145,6 +181,13 @@ The app has no automated test runner. Verify manually using the following checkl
 - **Active Lottery Rules** always reflects the current settings.
 - Loading an older JSON export (without `ruleHistory`) continues to work.
 - Refreshing the page restores all data including rule history.
+- **Generate Trades from Results** creates trade entries for every pick where owner ≠ team, and skips duplicates on repeat clicks.
+- Auto-generated trades show the **Auto-generated** badge; manually added trades show the **Manual** badge.
+- **Copy Lottery Announcement** copies the current results in Discord format.
+- **Copy Season Recap** copies the latest finalized season announcement.
+- **Copy Announcement** on each season card copies that season's results.
+- **Copy All Season History** copies all seasons in chronological order.
+- Clipboard copy actions show a toast on success and a fallback message if clipboard access is blocked.
 
 ```bash
 # Syntax check only (no test runner in this project)

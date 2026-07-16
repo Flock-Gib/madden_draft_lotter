@@ -90,6 +90,10 @@ const els = {
   importJsonInput: document.getElementById("importJsonInput"),
   importJsonBtn: document.getElementById("importJsonBtn"),
   copyDiscordBtn: document.getElementById("copyDiscordBtn"),
+  copyLotteryAnnouncementBtn: document.getElementById("copyLotteryAnnouncementBtn"),
+  generateTradesBtn: document.getElementById("generateTradesBtn"),
+  copySeasonRecapBtn: document.getElementById("copySeasonRecapBtn"),
+  copySeasonHistoryDiscordBtn: document.getElementById("copySeasonHistoryDiscordBtn"),
   downloadJsonBtn: document.getElementById("downloadJsonBtn"),
 };
 
@@ -293,6 +297,8 @@ function sanitizeTrade(trade) {
     toTeam,
     assets,
     notes,
+    createdAt: normalizeName(trade.createdAt) || "",
+    source: trade.source === "auto" ? "auto" : "manual",
   };
 }
 
@@ -627,6 +633,8 @@ function renderResults() {
   els.copyDiscordBtn.disabled = !hasResults;
   els.downloadJsonBtn.disabled = !hasResults;
   els.finalizeSeasonBtn.disabled = !hasResults || state.isRunning;
+  els.generateTradesBtn.disabled = !hasResults || state.isRunning;
+  els.copyLotteryAnnouncementBtn.disabled = !hasResults;
 }
 
 function getBallGroupLabel(ballCount) {
@@ -752,10 +760,12 @@ function renderSeasonHistory() {
 
   if (!state.seasonHistory.length) {
     els.seasonHistoryList.innerHTML = '<p class="helper-text">No finalized seasons yet.</p>';
+    els.copySeasonRecapBtn.disabled = true;
+    els.copySeasonHistoryDiscordBtn.disabled = true;
     return;
   }
 
-  state.seasonHistory.forEach((season) => {
+  state.seasonHistory.forEach((season, idx) => {
     const item = document.createElement("article");
     item.className = "history-item";
 
@@ -772,7 +782,10 @@ function renderSeasonHistory() {
       .join("");
 
     item.innerHTML = `
-      <p class="history-item-title">${escapeHtml(formatTime(season.finalizedAt))}</p>
+      <div class="history-item-head">
+        <p class="history-item-title">${escapeHtml(formatTime(season.finalizedAt))}</p>
+        <button class="button secondary copy-season-btn" data-season-idx="${idx}">Copy Announcement</button>
+      </div>
       <p class="history-item-line"><strong>#1:</strong> ${escapeHtml(season.numberOne || "Unknown")}</p>
       <p class="history-item-line"><strong>Top 3:</strong> ${escapeHtml((season.topThree || []).join(", ") || "N/A")}</p>
       <p class="history-item-line history-rules-ref"><strong>Rules:</strong> ${escapeHtml(ruleInfo)}</p>
@@ -784,8 +797,12 @@ function renderSeasonHistory() {
       ` : ""}
     `;
 
+    item.querySelector(".copy-season-btn").addEventListener("click", () => copySingleSeasonDiscord(idx));
     els.seasonHistoryList.appendChild(item);
   });
+
+  els.copySeasonRecapBtn.disabled = false;
+  els.copySeasonHistoryDiscordBtn.disabled = false;
 }
 
 function renderCurrentRules() {
@@ -1394,7 +1411,7 @@ function saveTrade() {
     state.trades = state.trades.map((entry) => (entry.id === state.editingTradeId ? { ...entry, ...trade } : entry));
     showToast("Trade updated.");
   } else {
-    state.trades.push({ id: createId(), ...trade });
+    state.trades.push({ id: createId(), createdAt: new Date().toISOString(), source: "manual", ...trade });
     showToast("Trade added.");
   }
 
@@ -1445,6 +1462,118 @@ async function copyTradeDiscordList() {
   }
 }
 
+function generateTradesFromResults() {
+  if (!state.results.length) {
+    showToast("Run the lottery first before generating trades.");
+    return;
+  }
+
+  const tradedPicks = state.results.filter((result) => result.owner && result.owner !== result.team);
+  if (!tradedPicks.length) {
+    showToast("No traded picks found in the current results. All picks are owned by their original teams.");
+    return;
+  }
+
+  const now = new Date().toISOString();
+  let added = 0;
+  tradedPicks.forEach((result) => {
+    const alreadyExists = state.trades.some(
+      (trade) =>
+        trade.source === "auto" &&
+        trade.fromTeam === result.team &&
+        trade.toTeam === result.owner &&
+        trade.assets.some((asset) => asset.includes(`Pick #${result.pick}`))
+    );
+    if (alreadyExists) return;
+
+    state.trades.push({
+      id: createId(),
+      fromTeam: result.team,
+      toTeam: result.owner,
+      assets: [`Pick #${result.pick} (from lottery draw)`],
+      notes: "Auto-generated from lottery results.",
+      createdAt: now,
+      source: "auto",
+    });
+    added += 1;
+  });
+
+  if (added === 0) {
+    showToast("Auto-generated trades already exist for all traded picks.");
+  } else {
+    showToast(`Generated ${added} trade${added === 1 ? "" : "s"} from lottery results.`);
+  }
+  render();
+}
+
+function buildSingleSeasonDiscordText(season) {
+  const date = season.finalizedAt ? formatTime(season.finalizedAt) : "Unknown date";
+  const lines = [
+    `# FLOCKVILLE DRAFT LOTTERY — SEASON RECAP`,
+    `**Finalized:** ${date}`,
+    "",
+    `**#1 Pick:** ${season.numberOne || "Unknown"}`,
+    `**Top 3:** ${(season.topThree || []).join(", ") || "N/A"}`,
+    "",
+    "**Full Draft Order:**",
+  ];
+
+  (season.finalOrder || []).forEach((pick) => {
+    const ownerNote = pick.owner && pick.owner !== pick.team ? ` — owned by **${pick.owner}**` : "";
+    lines.push(`#${pick.pick} — ${pick.team}${ownerNote}`);
+  });
+
+  if (season.seed) {
+    lines.push("", `Seed: ${season.seed}`);
+  }
+
+  lines.push("", "*Fair. Competitive. No Tanking.*", "**No Cheese. Just Ball.**");
+  return lines.join("\n");
+}
+
+async function copySingleSeasonDiscord(idx) {
+  const season = state.seasonHistory[idx];
+  if (!season) return;
+  try {
+    await navigator.clipboard.writeText(buildSingleSeasonDiscordText(season));
+    showToast("Season announcement copied for Discord.");
+  } catch {
+    showToast("Clipboard blocked. Copy manually from the season history.");
+  }
+}
+
+function buildSeasonHistoryDiscordText() {
+  if (!state.seasonHistory.length) return "";
+
+  const parts = state.seasonHistory
+    .slice()
+    .reverse()
+    .map((season) => buildSingleSeasonDiscordText(season));
+
+  return parts.join("\n\n---\n\n");
+}
+
+async function copySeasonHistoryDiscord() {
+  if (!state.seasonHistory.length) return;
+  try {
+    await navigator.clipboard.writeText(buildSeasonHistoryDiscordText());
+    showToast("All season history copied for Discord.");
+  } catch {
+    showToast("Clipboard blocked. Copy manually from exported JSON.");
+  }
+}
+
+async function copySeasonRecap() {
+  if (!state.seasonHistory.length) return;
+  const latest = state.seasonHistory[0];
+  try {
+    await navigator.clipboard.writeText(buildSingleSeasonDiscordText(latest));
+    showToast("Latest season recap copied for Discord.");
+  } catch {
+    showToast("Clipboard blocked. Copy manually from the season history.");
+  }
+}
+
 function renderTrades() {
   els.tradeList.innerHTML = "";
 
@@ -1458,9 +1587,19 @@ function renderTrades() {
     const item = document.createElement("article");
     item.className = "trade-item";
 
+    const timestampHtml = trade.createdAt
+      ? `<span class="trade-timestamp">${escapeHtml(formatTime(trade.createdAt))}</span>`
+      : "";
+    const sourceBadge = trade.source === "auto"
+      ? '<span class="trade-badge trade-badge-auto">Auto-generated</span>'
+      : '<span class="trade-badge trade-badge-manual">Manual</span>';
+
     item.innerHTML = `
       <div class="trade-item-head">
-        <p class="trade-item-title">${index + 1}. ${escapeHtml(trade.fromTeam)} → ${escapeHtml(trade.toTeam)}</p>
+        <div class="trade-item-title-row">
+          <p class="trade-item-title">${index + 1}. ${escapeHtml(trade.fromTeam)} → ${escapeHtml(trade.toTeam)}</p>
+          <div class="trade-item-meta">${sourceBadge}${timestampHtml}</div>
+        </div>
         <div class="button-row">
           <button class="button secondary trade-edit-btn">Edit</button>
           <button class="button danger trade-remove-btn">Remove</button>
@@ -1496,6 +1635,10 @@ els.loadAllNflBtn.addEventListener("click", loadAllNflTeams);
 els.resetBtn.addEventListener("click", resetApp);
 els.startLotteryBtn.addEventListener("click", startLottery);
 els.finalizeSeasonBtn.addEventListener("click", finalizeSeason);
+els.generateTradesBtn.addEventListener("click", generateTradesFromResults);
+els.copyLotteryAnnouncementBtn.addEventListener("click", copyDiscordResults);
+els.copySeasonRecapBtn.addEventListener("click", copySeasonRecap);
+els.copySeasonHistoryDiscordBtn.addEventListener("click", copySeasonHistoryDiscord);
 els.copyDiscordBtn.addEventListener("click", copyDiscordResults);
 els.downloadJsonBtn.addEventListener("click", downloadJson);
 els.importJsonBtn.addEventListener("click", importJson);
