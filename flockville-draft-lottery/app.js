@@ -89,6 +89,14 @@ const els = {
   downloadJsonBtn: document.getElementById("downloadJsonBtn"),
 };
 
+// Populate the "Add team" dropdown once from the canonical NFL_TEAMS list
+NFL_TEAMS.forEach((name) => {
+  const option = document.createElement("option");
+  option.value = name;
+  option.textContent = name;
+  els.teamNameInput.appendChild(option);
+});
+
 function createId() {
   return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
 }
@@ -472,13 +480,29 @@ function renderTeams() {
         <strong>${index + 1}</strong>
         <button class="remove-btn move-down" title="Move down" ${locked ? "disabled" : ""}>↓</button>
       </td>
-      <td><input class="team-name-edit" value="${escapeHtml(team.name)}" ${locked ? "disabled" : ""} /></td>
+      <td><select class="team-name-edit" ${locked ? "disabled" : ""}></select></td>
       <td><input class="owner-edit" value="${escapeHtml(team.owner)}" ${locked ? "disabled" : ""} /></td>
       <td><strong>${getBallCount(index)}</strong></td>
       <td><input class="inline-check previous-top-three" type="checkbox" ${team.previousTopThree ? "checked" : ""} ${locked ? "disabled" : ""} /></td>
       <td><input class="inline-check previous-number-one" type="checkbox" ${team.previousNumberOne ? "checked" : ""} ${locked ? "disabled" : ""} /></td>
       <td><button class="remove-btn remove-team" ${locked ? "disabled" : ""}>Remove</button></td>
     `;
+
+    const nameSelect = row.querySelector(".team-name-edit");
+    NFL_TEAMS.forEach((nflName) => {
+      const opt = document.createElement("option");
+      opt.value = nflName;
+      opt.textContent = nflName;
+      nameSelect.appendChild(opt);
+    });
+    // Backward compat: if the saved name isn't in NFL_TEAMS, add it as a selectable option
+    if (!NFL_TEAMS.includes(team.name)) {
+      const customOpt = document.createElement("option");
+      customOpt.value = team.name;
+      customOpt.textContent = team.name;
+      nameSelect.insertBefore(customOpt, nameSelect.firstChild);
+    }
+    nameSelect.value = team.name;
 
     row.querySelector(".move-up").addEventListener("click", () => moveTeam(team.id, -1));
     row.querySelector(".move-down").addEventListener("click", () => moveTeam(team.id, 1));
