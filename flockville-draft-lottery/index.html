@@ -141,6 +141,8 @@
       <div id="resultsGrid" class="results-grid"></div>
       <div class="button-row draw-actions">
         <button id="finalizeSeasonBtn" class="button secondary" disabled>Finalize Season</button>
+        <button id="generateTradesBtn" class="button secondary" disabled>Generate Trades from Results</button>
+        <button id="copyLotteryAnnouncementBtn" class="button secondary" disabled>Copy Lottery Announcement</button>
       </div>
     </section>
 
@@ -170,6 +172,7 @@
           <h2>Lottery History</h2>
           <p class="helper-text">Finalized seasons with full draw order and the rules in effect at the time.</p>
         </div>
+        <button id="copySeasonRecapBtn" class="button secondary" disabled>Copy Season Recap</button>
       </div>
       <div id="seasonHistoryList" class="season-history-list">
         <p class="helper-text">No finalized seasons yet.</p>
@@ -240,6 +243,7 @@
         <input id="importJsonInput" type="file" accept=".json,application/json" />
         <button id="importJsonBtn" class="button secondary">Import JSON</button>
         <button id="copyDiscordBtn" class="button secondary" disabled>Copy Discord Results</button>
+        <button id="copySeasonHistoryDiscordBtn" class="button secondary" disabled>Copy All Season History</button>
         <button id="downloadJsonBtn" class="button secondary" disabled>Download JSON</button>
       </div>
     </section>
