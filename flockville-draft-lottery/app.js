@@ -3,6 +3,13 @@ const STORAGE_VERSION = 3;
 const MAX_SEASON_HISTORY = 12;
 const MAX_RULE_HISTORY = 50;
 const DEFAULT_STATUS = "Add teams, confirm the settings, and start the draw.";
+const DEMO_TEAM_COUNT = 8;
+const DEMO_TEAM_PRESET = [
+  "Raiders", "Giants", "Titans", "Browns",
+  "Jets", "Panthers", "Saints", "Patriots",
+  "Bears", "Cardinals", "Colts", "Jaguars",
+  "Falcons", "Seahawks", "Dolphins", "Cowboys",
+];
 
 const NFL_TEAMS = [
   "Arizona Cardinals",
@@ -1192,12 +1199,13 @@ function loadDemo() {
     return;
   }
 
-  state.teams = [
-    "Raiders", "Giants", "Titans", "Browns",
-    "Jets", "Panthers", "Saints", "Patriots",
-    "Bears", "Cardinals", "Colts", "Jaguars",
-    "Falcons", "Seahawks", "Dolphins", "Cowboys",
-  ].map((name) => ({
+  const demoNames = DEMO_TEAM_PRESET.slice(0, DEMO_TEAM_COUNT);
+  if (demoNames.length < DEMO_TEAM_COUNT) {
+    showToast(`Demo preset is missing teams (expected ${DEMO_TEAM_COUNT}).`);
+    return;
+  }
+
+  state.teams = demoNames.map((name) => ({
     id: createId(),
     name,
     owner: name,
@@ -1205,14 +1213,18 @@ function loadDemo() {
     previousNumberOne: false,
   }));
 
-  state.teams[1].owner = "Baltimore Ravens";
-  state.teams[4].previousTopThree = true;
-  state.teams[7].previousNumberOne = true;
+  if (state.teams.length > DEMO_TEAM_COUNT) {
+    state.teams = state.teams.slice(0, DEMO_TEAM_COUNT);
+  }
+
+  if (state.teams[1]) state.teams[1].owner = "Baltimore Ravens";
+  if (state.teams[4]) state.teams[4].previousTopThree = true;
+  if (state.teams[7]) state.teams[7].previousNumberOne = true;
 
   state.results = [];
   state.lastRunMeta = null;
   render();
-  showToast("Demo teams loaded.");
+  showToast(`Loaded ${state.teams.length}-team demo.`);
 }
 
 function loadAllNflTeams() {
