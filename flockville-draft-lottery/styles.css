@@ -97,6 +97,16 @@ h2 {
   text-transform: uppercase;
 }
 
+a.button {
+  display: inline-block;
+  color: var(--white);
+  text-decoration: none;
+}
+
+.hero-actions {
+  margin-top: 16px;
+}
+
 .panel {
   margin-bottom: 22px;
   padding: 24px;
@@ -559,6 +569,28 @@ th {
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 6px;
+}
+
+.info-content ol,
+.info-content ul {
+  margin: 14px 0 0;
+  padding-left: 22px;
+}
+
+.info-content li {
+  margin-bottom: 8px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.example-outcome {
+  margin-top: 10px;
+}
+
+.last-updated {
+  margin: 18px 0 0;
+  color: var(--purple-light);
+  font-weight: 700;
 }
 
 footer {
