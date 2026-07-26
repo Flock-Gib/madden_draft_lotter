@@ -7,8 +7,6 @@ const DEMO_TEAM_COUNT = 8;
 const DEMO_TEAM_PRESET = [
   "Raiders", "Giants", "Titans", "Browns",
   "Jets", "Panthers", "Saints", "Patriots",
-  "Bears", "Cardinals", "Colts", "Jaguars",
-  "Falcons", "Seahawks", "Dolphins", "Cowboys",
 ];
 
 const NFL_TEAMS = [
@@ -103,6 +101,7 @@ const els = {
   copySeasonHistoryDiscordBtn: document.getElementById("copySeasonHistoryDiscordBtn"),
   downloadJsonBtn: document.getElementById("downloadJsonBtn"),
 };
+const lotteryOrder = globalThis.lotteryOrder || {};
 
 // Populate the "Add team" dropdown once from the canonical NFL_TEAMS list
 NFL_TEAMS.forEach((name) => {
@@ -132,6 +131,15 @@ function normalizeName(value) {
   return String(value || "").trim();
 }
 
+function toFiniteNumber(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
 function sanitizeTeam(team, fallbackName = "") {
   if (!team || typeof team !== "object") return null;
   const cleanName = normalizeName(team.name) || fallbackName;
@@ -142,6 +150,9 @@ function sanitizeTeam(team, fallbackName = "") {
     owner: normalizeName(team.owner) || cleanName,
     previousTopThree: Boolean(team.previousTopThree),
     previousNumberOne: Boolean(team.previousNumberOne),
+    winPct: toFiniteNumber(team.winPct),
+    sos: toFiniteNumber(team.sos),
+    headToHead: team.headToHead && typeof team.headToHead === "object" ? team.headToHead : {},
   };
 }
 
@@ -444,6 +455,9 @@ function addTeam(name, owner = "") {
     owner: normalizeName(owner) || cleanName,
     previousTopThree: false,
     previousNumberOne: false,
+    winPct: null,
+    sos: null,
+    headToHead: {},
   });
 
   state.results = [];
@@ -915,8 +929,24 @@ function weightedRandomTeam(eligibleTeams, randomFn) {
   return weightedPool[Math.floor(randomFn() * weightedPool.length)];
 }
 
+function orderLotteryEntries(entries, context = {}) {
+  if (typeof lotteryOrder.orderLotteryEntries === "function") {
+    return lotteryOrder.orderLotteryEntries(entries, context);
+  }
+  return [...entries].sort((a, b) => (a.standingIndex ?? 0) - (b.standingIndex ?? 0));
+}
+
 function buildLotteryEntries() {
-  return state.teams.map((team, index) => ({
+  const entries = state.teams.map((team, index) => ({
+    ...team,
+    standingIndex: index,
+  }));
+
+  const ordered = orderLotteryEntries(entries, {
+    seed: state.seedEnabled ? state.seedText : "",
+  });
+
+  return ordered.map((team, index) => ({
     ...team,
     standingIndex: index,
     balls: getBallCount(index),
@@ -1027,8 +1057,10 @@ function runLotteryCalculation(randomFn) {
     remaining.splice(remaining.findIndex((entry) => entry.id === winner.id), 1);
   }
 
-  remaining.sort((a, b) => a.standingIndex - b.standingIndex);
-  remaining.forEach((entry) => {
+  const orderedRemaining = orderLotteryEntries(remaining, {
+    seed: state.seedEnabled ? state.seedText : "",
+  });
+  orderedRemaining.forEach((entry) => {
     selected.push({
       ...entry,
       team: entry.name,
@@ -1211,11 +1243,10 @@ function loadDemo() {
     owner: name,
     previousTopThree: false,
     previousNumberOne: false,
+    winPct: null,
+    sos: null,
+    headToHead: {},
   }));
-
-  if (state.teams.length > DEMO_TEAM_COUNT) {
-    state.teams = state.teams.slice(0, DEMO_TEAM_COUNT);
-  }
 
   if (state.teams[1]) state.teams[1].owner = "Baltimore Ravens";
   if (state.teams[4]) state.teams[4].previousTopThree = true;
@@ -1245,6 +1276,9 @@ function loadAllNflTeams() {
       owner: name,
       previousTopThree: false,
       previousNumberOne: false,
+      winPct: null,
+      sos: null,
+      headToHead: {},
     });
     added += 1;
   });
