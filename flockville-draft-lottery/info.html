@@ -45,14 +45,44 @@
     </section>
 
     <section class="panel info-content">
+      <p class="eyebrow">WHY IT'S FAIR</p>
+      <h2>Fairness and auditability</h2>
+      <ul class="faq-list">
+        <li><strong>Weighted odds are transparent.</strong> The odds panel shows every team, ball count, and exact chance used by the draw.</li>
+        <li><strong>Anti-tanking protections are configurable.</strong> Bottom-four protection, Top-3 cooldown, and no consecutive #1 reduce repeat abuse when enabled.</li>
+        <li><strong>Tie-breaks are deterministic.</strong> Equal records are resolved in order: Strength of Schedule (Madden) → Head-to-Head (if available) → seeded deterministic coin flip.</li>
+        <li><strong>Seeded mode is auditable.</strong> Enable deterministic seed to replay the same setup and verify identical results.</li>
+      </ul>
+    </section>
+
+    <section class="panel info-content">
+      <p class="eyebrow">TRADED PICKS</p>
+      <h2>How pick ownership works</h2>
+      <p>
+        The lottery entry belongs to the original team based on standings, but the final pick is awarded to the current owner.
+        In the app, results display this as <strong>Owner (via Original Team)</strong>.
+      </p>
+      <ol class="quick-start-list">
+        <li>Set each team's <strong>Pick Owner</strong> in the main table.</li>
+        <li>Run the draw as normal.</li>
+        <li>If owner differs from team, the result card and announcement include the ownership note automatically.</li>
+        <li>Use <strong>Generate Trades from Results</strong> to create a matching trade log entry for every traded pick in the results.</li>
+      </ol>
+    </section>
+
+    <section class="panel info-content">
       <p class="eyebrow">EXAMPLE</p>
-      <h2>Concrete scenario</h2>
+      <h2>Practical examples</h2>
       <p>
         Suppose Team A finishes with the second-worst record, but Team B owns Team A's first-round pick.
         If Team A's entry wins Pick #1 in the draw, <strong>Team B receives Pick #1</strong> because ownership follows the traded pick.
       </p>
       <p class="example-outcome">
         Expected outcome in results: <strong>Pick #1 — Team B (via Team A)</strong>.
+      </p>
+      <p>
+        Tie-break example: if two teams have the same record, the app first checks Madden SoS, then head-to-head data (if provided),
+        then a seeded deterministic coin flip so repeated runs with the same setup are reproducible.
       </p>
     </section>
 
@@ -63,6 +93,7 @@
         <li><strong>Why didn't a bottom-four team drop below Pick #8?</strong> Bottom-four protection prevents that when enabled.</li>
         <li><strong>Why couldn't last year's Top 3 land in the Top 3 again?</strong> Top-3 cooldown blocks repeat Top-3 outcomes when enabled.</li>
         <li><strong>What does deterministic seed do?</strong> It makes the draw repeatable for audit purposes using the same inputs and seed text.</li>
+        <li><strong>What if tie-break data is missing?</strong> The app keeps existing ordering behavior and only applies SoS/H2H when those values are available.</li>
         <li><strong>Do I need a backend?</strong> No. The app runs fully in your browser and saves state locally.</li>
       </ul>
       <p class="last-updated">Last updated: 2026-07-26</p>

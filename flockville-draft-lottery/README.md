@@ -190,6 +190,9 @@ The app has no automated test runner. Verify manually using the following checkl
 - Clipboard copy actions show a toast on success and a fallback message if clipboard access is blocked.
 
 ```bash
-# Syntax check only (no test runner in this project)
+# Syntax check
 node --check flockville-draft-lottery/app.js
+
+# Targeted tie-break ordering tests
+node --test flockville-draft-lottery/lottery-order.test.js
 ```
