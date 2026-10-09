@@ -71,6 +71,9 @@
         <button id="addTeamBtn" class="button primary">Add Team</button>
       </div>
       <p class="helper-text">Pick owners can be any current NFL team, even if not in the lottery list.</p>
+      <p id="protectionSource" class="helper-text" aria-live="polite"></p>
+      <label><input id="manualProtectionToggle" type="checkbox" /> Use manual protection checkboxes for this season (override history)</label>
+      <p class="helper-text">Protections follow the original lottery team, not its pick owner. Without the exact previous year, review the warning and explicitly enable manual flags before drawing.</p>
 
       <div class="table-wrap">
         <table>
@@ -187,7 +190,7 @@
 
       <div class="required-trades">
         <h3 class="subheading">Trades required to match the lottery order</h3>
-        <p class="helper-text">Before the lottery, Pick #N sits with whoever owns the Nth-worst team's pick. These swaps move every pick to the team the lottery assigned it to, using the fewest trades possible.</p>
+        <p class="helper-text">Before the lottery, Pick #N sits with whoever owns the Nth-worst team's pick. Execute these swaps in the listed order between current owners. With duplicate owners, global minimum trade count is not guaranteed.</p>
         <div id="requiredTradesList"></div>
       </div>
 
@@ -203,7 +206,7 @@
         <div>
           <p class="eyebrow">STEP 5 · HISTORY</p>
           <h2>Past Lotteries</h2>
-          <p class="helper-text">Every completed lottery is saved in this browser by season year, including the final order, odds used, and required trades. Export to back up or share; import to restore.</p>
+          <p class="helper-text">Every completed lottery is saved by season year. Storage is browser-local, not server-synced. Export files are backups; import to restore. To recover a photo: enter last year's actual order below → save/confirm → select next year → review automatic flags → draw → export backup.</p>
         </div>
       </div>
       <div class="history-toolbar">
@@ -219,6 +222,35 @@
         </div>
       </div>
       <div id="historyDetail" class="history-detail"></div>
+      <div class="button-row">
+        <button id="newHistoryBtn" class="button secondary">Enter a Past Draft</button>
+        <button id="editHistoryBtn" class="button secondary" disabled>Edit Selected Year</button>
+      </div>
+      <details id="manualHistoryEditor">
+        <summary>Transcribe or correct an actual past draft</summary>
+        <p class="helper-text">No photo is uploaded automatically. Type the actual order from your screenshot; missing results cannot be recovered automatically. This saves history only, never runs a lottery or changes live results. Unknown odds, seed, standings and trades stay unknown.</p>
+        <label>Past season year <input id="manualHistoryYear" type="number" min="1000" max="9999" step="1" inputmode="numeric" /></label>
+        <label>Record type
+          <select id="manualHistoryCompleteness">
+            <option value="complete">Complete order (enter every pick)</option>
+            <option value="top-three">Partial — top three only (protection, not trades)</option>
+          </select>
+        </label>
+        <p class="helper-text">Enter consecutive picks starting at #1 and unique original teams. Owner is optional (blank means the original team). Multiple picks may have the same owner.</p>
+        <datalist id="historyTeamNames"></datalist>
+        <div id="manualHistoryRows" class="manual-history-rows"></div>
+        <div class="button-row">
+          <button id="addHistoryPickBtn" class="button secondary">Add Pick</button>
+          <button id="saveManualHistoryBtn" class="button primary">Save / Confirm Past Draft</button>
+          <button id="cancelManualHistoryBtn" class="button secondary">Cancel Editing</button>
+        </div>
+        <p id="manualHistoryMessage" class="helper-text" role="status"></p>
+      </details>
+      <label>Older finalized season (year is never guessed)
+        <select id="legacySeasonSelect" aria-label="Older finalized season"></select>
+      </label>
+      <button id="loadLegacySeasonBtn" class="button secondary">Load Order for Year Assignment</button>
+      <p class="helper-text">Import an older full-state backup with Import History to access its finalized orders without changing live setup. Assign each verified year in the editor and confirm saving.</p>
     </section>
 
     <section class="panel">
@@ -236,7 +268,7 @@
         <div>
           <p class="eyebrow">SEASONS</p>
           <h2>Finalized Seasons</h2>
-          <p class="helper-text">Seasons archived with <strong>Finalize Season</strong> (used for cooldown flags), with full draw order and the rules in effect at the time.</p>
+          <p class="helper-text">Seasons archived with <strong>Finalize Season</strong>, with full draw order and rules. Cooldown protections come from year-keyed Past Lotteries; older archives need explicit year assignment.</p>
         </div>
         <button id="copySeasonRecapBtn" class="button secondary" disabled>Copy Season Recap</button>
       </div>
@@ -337,7 +369,7 @@
         </article>
         <article>
           <h3 class="subheading">How trades are determined</h3>
-          <p class="helper-text">Before the lottery, Pick #N belongs to the Nth-worst team's pick owner (Madden's default order). After the draw, the app works out the pick swaps that move every pick to the team the lottery assigned it. It closes each chain of moves with the fewest swaps, skips picks that don't move, and makes each swap between the <em>current</em> owners, so traded picks are handled correctly.</p>
+          <p class="helper-text">Before the lottery, Pick #N belongs to the Nth-worst team's pick owner. The app lists swaps between current owners to reach the final ownership order; execute them in order. Duplicate owners do not carry a global minimum-swap guarantee.</p>
           <p class="helper-text">Example: if the 3rd-worst team wins #1, "Team C sends Pick #3 to Team A for Pick #1".</p>
         </article>
       </div>

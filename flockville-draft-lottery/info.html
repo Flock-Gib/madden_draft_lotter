@@ -24,6 +24,9 @@
     <section class="panel info-content">
       <p class="eyebrow">HOW IT WORKS</p>
       <h2>Step-by-step</h2>
+      <p>Already drafted last year? In <strong>Past Lotteries → Enter a Past Draft</strong>, transcribe your screenshot's actual season year and original teams in pick order, with optional pick owners. Choose complete order or partial top-three only; click <strong>Save / Confirm Past Draft</strong> and confirm. Missing results cannot be recovered automatically, and no old lottery is rerun.</p>
+      <p>Select the next season year, review automatically derived protection flags from exactly the preceding season, then draw and <strong>Export History</strong> for a backup. Protection follows the original entrant, not the traded-pick owner. If that year is missing, explicitly enable and review manual checkbox flags; both rule toggles work independently. Impossible rule combinations stop rather than silently relax protections.</p>
+      <p>Use <strong>Edit Selected Year</strong> to correct history with confirmation. Older finalized orders from full-state backups can be loaded with <strong>Import History</strong> and explicitly assigned years; no season is guessed. History views never replace live results.</p>
       <ol>
         <li>Add non-playoff teams in order from worst record to best record.</li>
         <li>Confirm pick owners if a team's first-round pick was traded.</li>
@@ -31,7 +34,7 @@
         <li>Set the <strong>Season year</strong> and run the lottery draw to generate results.</li>
         <li>Review the final order and the <strong>required trades</strong> that put every pick in lottery order.</li>
         <li>The lottery is saved automatically to <strong>Past Lotteries</strong> under its year (re-running a saved year asks before replacing it).</li>
-        <li>Finalize the season to archive outcomes, roll cooldown flags into next season, and advance the season year.</li>
+        <li>Optionally finalize the live season to archive outcomes and advance the season year. Saved history already supplies next year's protection.</li>
       </ol>
     </section>
 
@@ -82,7 +85,7 @@
       <ul class="faq-list">
         <li><strong>Every move is covered.</strong> Trades are created whenever a pick needs to move, not only when a pick was traded earlier.</li>
         <li><strong>Current owners trade.</strong> If Baltimore owns the Bears' pick, Baltimore makes the swap.</li>
-        <li><strong>Fewest trades.</strong> Each chain of moves of length k is closed with k − 1 swaps. Picks that don't move are skipped, and so are swaps between two picks with the same owner.</li>
+        <li><strong>Ordered swaps.</strong> With unique owners each cycle of length k needs k − 1 swaps. With duplicate owners a global minimum is not guaranteed. Invalid input displays an error, not “no trades needed”.</li>
         <li><strong>Clear wording.</strong> Each trade reads "Team A sends Pick #X to Team B for Pick #Y". Do them in the order listed.</li>
       </ul>
     </section>
@@ -95,6 +98,8 @@
         <li>Pick a year in <strong>Past Lotteries</strong> to view it, or click <strong>Delete This Year</strong> to remove one saved year.</li>
         <li><strong>Export History</strong> downloads all saved years as JSON. <strong>Import History</strong> merges a file back in and asks before replacing years you already have.</li>
         <li><strong>Reset</strong> does not delete Past Lotteries.</li>
+        <li>Storage is <strong>browser-local, not server-synced</strong>. Export files are backups; clearing browser data or changing devices can lose unexported records.</li>
+        <li>Manually entered records are labeled, unknown draw metadata stays unknown, and partial top-three records never generate trades.</li>
       </ul>
     </section>
 

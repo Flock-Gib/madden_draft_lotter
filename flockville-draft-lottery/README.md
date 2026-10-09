@@ -14,7 +14,7 @@ A static web application for running the Flockville Madden League draft lottery.
 - Discord-ready results
 - Lottery transparency panel with team-by-team balls, odds %, and tier subtotals
 - Trade list builder with Discord-ready copy export
-- **Required trades** — after each draw the app lists the minimal set of pick swaps needed to turn the pre-lottery order into the lottery order; one click adds them to the trade list
+- **Required trades** — after each draw the app lists ordered pick swaps needed to turn the pre-lottery ownership order into the lottery ownership order; one click adds them to the trade list
 - **Past Lotteries** — every completed lottery is saved by season year (date run, final order, odds, required trades) with view/delete per year and history JSON export/import
 - **Guided layout** — header navigation (Lottery / Results / History / How it works), a step-by-step flow tracker, a per-team odds table, and result cards showing pre-lottery slot and movement
 - **Enhanced trade cards** — each card shows from/to teams, assets, notes, timestamp, and manual/auto-generated badge
@@ -69,6 +69,21 @@ Example:
 
 ## Using the App
 
+### Recover an actual past draft from a photo
+
+1. In **Past Lotteries**, click **Enter a Past Draft**. Read your screenshot and type its actual season year, consecutive picks starting at #1, and original lottery teams. Use the exact team names from setup (suggestions are available); an optional owner identifies who received a traded pick.
+2. Enter every pick for **Complete order**, or select **Partial — top three only** and enter exactly picks #1–#3. Partial records supply protection but never generate trades. Unknown odds, seed, standings and trades are not invented.
+3. Click **Save / Confirm Past Draft**, check the confirmation, and save. **Edit Selected Year** opens a saved record for corrections; replacing any existing year requires confirmation. Other years and live setup/results stay unchanged. Known optional metadata is retained where the edited picks remain unchanged.
+4. Select the **next season year** in Run the Lottery. Review the protection source and the automatically checked **Previous Top 3? / Previous #1?** columns. These use only the exact preceding year, by original team, not pick owner. Viewing another history year does not change live results or the protection source.
+5. Review the independent rule toggles, current standings, owners and odds; run the **new** lottery. Impossible protection combinations stop with a message rather than silently permitting a repeat.
+6. **Export History** and **Download JSON** for backups. Storage is browser-local, not server-synced; exports are backups for another browser/device or data loss.
+
+No screenshot has been uploaded to the app: screenshots are transcribed manually. Unsaved past results cannot be recovered automatically; do not rerun an old lottery to reconstruct them.
+
+If the exact prior year is missing, the app warns and requires **Use manual protection checkboxes for this season** before drawing with either cooldown rule enabled. Review both columns, including explicitly confirming no flags when appropriate. That override applies only to the selected season and is cleared when the year changes; uncheck it to resume automatic history sourcing. Historical edits/imports/deletes and newly added teams are reflected immediately in automatic mode.
+
+Older full-state backups remain compatible. **Import History** can expose their finalized orders in **Older finalized season** without changing live setup/results. Select an order, click **Load Order for Year Assignment**, assign the actual year (never guessed), review the record type and save. Imported unassigned candidates are available until reload or another import; save each needed order first. The legacy finalized archive/import candidate list retains its existing 12-entry limit; year-keyed Past Lotteries is not limited to 12.
+
 1. **Enter teams & standings** — add non-playoff teams worst-to-best and set the pick owner for any traded pick.
 2. **Review odds** — the odds table shows each team's pre-lottery slot, pick owner, balls, and chance on the first draw. Lock setup when it looks right.
 3. **Run the lottery** — set the **Season year** and click **Start Lottery**. If that year is already saved, you are asked before it is replaced.
@@ -81,7 +96,8 @@ Before the lottery, Pick #N belongs to whoever owns the Nth-worst team's pick (M
 
 - Trades are generated for **every** pick that has to move, not only for picks that were traded before the lottery.
 - Swaps are made between the **current owners**. For example, if Baltimore owns the Bears' pick, Baltimore makes the trade.
-- The fewest swaps are used: each cycle of moves of length k needs k − 1 swaps. Picks that don't move are skipped, and so are swaps between two picks held by the same owner.
+- With unique owners, a cycle of length k needs k − 1 swaps. Already-correct owners are skipped. With duplicate owners the sequence is valid, but a globally minimum number of swaps is not guaranteed.
+- Inconsistent results cannot be interpreted as “no trades needed”; the app reports a trade-validation error.
 - Each trade reads `Team A sends Pick #X to Team B for Pick #Y`. Run them in the order listed.
 
 Click **Generate Trades from Results** to add these swaps to the Trade List Builder as **Auto-generated** entries. Clicking it again skips swaps that are already in the list. You can edit or remove auto-generated trades just like manual ones.
@@ -93,7 +109,7 @@ Click **Generate Trades from Results** to add these swaps to the Trade List Buil
 - Pick a year in the **Past Lotteries** dropdown to view its full results and trades. **Delete This Year** removes one saved year after you confirm.
 - **Export History** downloads all saved years as JSON. **Import History** accepts a history export or a full app export, merges it in, and asks before replacing years you already have.
 - History is stored in its own localStorage key (`flockvilleDraftLotteryHistory`), so **Reset** does not delete it.
-- **Finalize Season** still archives the season for cooldown flags (see *Finalized Seasons*) and advances the season year by one.
+- **Finalize Season** archives the live draw using its recorded year (not a subsequently selected year) and advances to the following season. Protections already come from Past Lotteries; finalizing a historical draw is not necessary. Legacy live results without a verified year must be assigned through the history editor.
 
 ## Discord Exports
 
@@ -122,8 +138,9 @@ Click **Copy All Season History** in the Export Results section. Copies all fina
 1. Set up teams and settings.
 2. Run lottery.
 3. Click **Finalize Season** to archive the season and prepare the next one.
-   - Teams that finished Picks #1-#3 are automatically marked `previousTopThree = true`.
-   - Only Pick #1 is marked `previousNumberOne = true`.
+   - The following season derives `previousTopThree` from the saved original entrants at Picks #1–#3.
+   - Only the saved original entrant at Pick #1 has `previousNumberOne = true`.
+   - Manual flags are separate fallback/override inputs; finalization does not create a competing flag source.
    - Results are archived into lottery history with the full draw order and the active rule version at finalization time.
 
 ## Finalized Seasons
@@ -175,7 +192,7 @@ When a season is finalized, the active rule version ID is stored alongside the s
 
 ### Schema version
 
-The localStorage schema is currently at **version 3**. Older saves (v1–v2) are read without issue — `ruleHistory` defaults to an empty array and an initial snapshot is taken from the restored settings. A fresh rule version is captured automatically so existing users are not affected.
+The localStorage schema remains **version 3**, with additive manual-history metadata and a season-scoped manual protection override. Older saves (v1–v2) are accepted — `ruleHistory` defaults to an empty array and an initial snapshot is taken from the restored settings. Unassigned legacy season years are never inferred.
 
 ## Import / Export JSON
 
@@ -215,6 +232,6 @@ The app has no build step. Run the Node tests below and verify the UI manually u
 # Syntax check
 node --check flockville-draft-lottery/app.js
 
-# Targeted tests (tie-break ordering, required trades, history)
-node --test flockville-draft-lottery/lottery-order.test.js flockville-draft-lottery/lottery-trades.test.js flockville-draft-lottery/lottery-history.test.js
+# Tests (tie-break ordering, required trades, history, app integration)
+node --test flockville-draft-lottery/*.test.js
 ```
