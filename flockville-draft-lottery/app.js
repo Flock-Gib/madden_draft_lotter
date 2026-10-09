@@ -1,4 +1,5 @@
 const STORAGE_KEY = "flockvilleDraftLotteryState";
+const HISTORY_STORAGE_KEY = "flockvilleDraftLotteryHistory";
 const STORAGE_VERSION = 3;
 const MAX_SEASON_HISTORY = 12;
 const MAX_RULE_HISTORY = 50;
@@ -54,6 +55,9 @@ const state = {
   seedEnabled: false,
   seedText: "",
   lastRunMeta: null,
+  seasonYear: new Date().getFullYear(),
+  lotteryHistory: {},
+  selectedHistoryYear: "",
   isRunning: false,
   editingTradeId: "",
 };
@@ -100,8 +104,19 @@ const els = {
   copySeasonRecapBtn: document.getElementById("copySeasonRecapBtn"),
   copySeasonHistoryDiscordBtn: document.getElementById("copySeasonHistoryDiscordBtn"),
   downloadJsonBtn: document.getElementById("downloadJsonBtn"),
+  seasonYearInput: document.getElementById("seasonYearInput"),
+  requiredTradesList: document.getElementById("requiredTradesList"),
+  flowSteps: document.getElementById("flowSteps"),
+  historyYearSelect: document.getElementById("historyYearSelect"),
+  historyDetail: document.getElementById("historyDetail"),
+  deleteHistoryYearBtn: document.getElementById("deleteHistoryYearBtn"),
+  exportHistoryBtn: document.getElementById("exportHistoryBtn"),
+  importHistoryInput: document.getElementById("importHistoryInput"),
+  importHistoryBtn: document.getElementById("importHistoryBtn"),
 };
 const lotteryOrder = globalThis.lotteryOrder || {};
+const lotteryTrades = globalThis.lotteryTrades;
+const lotteryHistory = globalThis.lotteryHistory;
 
 // Populate the "Add team" dropdown once from the canonical NFL_TEAMS list
 NFL_TEAMS.forEach((name) => {
@@ -228,6 +243,7 @@ function sanitizeSeasonHistory(list) {
 
       return {
         id: normalizeName(entry.id) || createId(),
+        year: lotteryHistory.sanitizeYear(entry.year),
         finalizedAt: normalizeName(entry.finalizedAt) || new Date().toISOString(),
         numberOne: normalizeName(entry.numberOne) || (topThree[0] || "Unknown"),
         topThree,
@@ -369,6 +385,8 @@ function sanitizeImportedPayload(payload) {
     seedEnabled: Boolean(payload.seedEnabled),
     seedText: normalizeName(payload.seedText),
     lastRunMeta: payload.lastRunMeta && typeof payload.lastRunMeta === "object" ? payload.lastRunMeta : null,
+    seasonYear: lotteryHistory.sanitizeYear(payload.seasonYear) ?? new Date().getFullYear(),
+    lotteryHistory: lotteryHistory.extractHistoryFromPayload(payload),
     settings,
   };
 }
@@ -388,10 +406,36 @@ function persistState() {
       seedEnabled: state.seedEnabled,
       seedText: state.seedText,
       lastRunMeta: state.lastRunMeta,
+      seasonYear: state.seasonYear,
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   } catch {
     // Ignore localStorage write failures.
+  }
+}
+
+function persistHistory() {
+  try {
+    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(lotteryHistory.buildHistoryExport(state.lotteryHistory)));
+  } catch {
+    showToast("Could not save lottery history to this browser. Use Export History to back it up.");
+  }
+}
+
+function restoreHistoryFromStorage() {
+  let raw;
+  try {
+    raw = localStorage.getItem(HISTORY_STORAGE_KEY);
+  } catch {
+    return;
+  }
+
+  if (!raw) return;
+
+  try {
+    state.lotteryHistory = lotteryHistory.extractHistoryFromPayload(JSON.parse(raw));
+  } catch {
+    showToast("Saved lottery history was corrupted and could not be loaded.");
   }
 }
 
@@ -424,6 +468,7 @@ function restoreStateFromStorage() {
     state.seedEnabled = restored.seedEnabled;
     state.seedText = restored.seedText;
     state.lastRunMeta = restored.lastRunMeta;
+    state.seasonYear = restored.seasonYear;
 
     applySettingsToUi(restored.settings);
   } catch {
@@ -631,24 +676,53 @@ function renderTeams() {
   });
 }
 
+function getOriginalSlot(result) {
+  const explicit = Number.parseInt(result?.originalSlot, 10);
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+  return Number.isFinite(result?.standingIndex) && result.standingIndex >= 0 ? result.standingIndex + 1 : null;
+}
+
+function buildMovementBadge(originalSlot, pick) {
+  if (!originalSlot) return "";
+  const movement = originalSlot - pick;
+  if (movement > 0) {
+    return `<span class="movement-badge movement-up" title="Moved up ${movement} spot${movement === 1 ? "" : "s"} from pre-lottery slot #${originalSlot}">▲ ${movement}</span>`;
+  }
+  if (movement < 0) {
+    return `<span class="movement-badge movement-down" title="Moved down ${-movement} spot${movement === -1 ? "" : "s"} from pre-lottery slot #${originalSlot}">▼ ${-movement}</span>`;
+  }
+  return `<span class="movement-badge movement-none" title="Stayed in pre-lottery slot #${originalSlot}">—</span>`;
+}
+
 function renderResults() {
   els.resultsGrid.innerHTML = "";
+
+  if (!state.results.length) {
+    els.resultsGrid.innerHTML = '<p class="helper-text results-empty">No results yet. Run the lottery to reveal the draft order here.</p>';
+  }
 
   state.results.forEach((result) => {
     const card = document.createElement("article");
     card.className = "result-card";
     const winnerTeam = normalizeName(result.team) || normalizeName(result.name) || "Unknown team";
     const ownerText = result.owner !== winnerTeam ? `Pick owned by ${result.owner}` : "Original team owns pick";
+    const originalSlot = getOriginalSlot(result);
 
     card.innerHTML = `
-      <div class="result-pick">Pick #${result.pick}</div>
+      <div class="result-pick-row">
+        <div class="result-pick">Pick #${result.pick}</div>
+        ${buildMovementBadge(originalSlot, result.pick)}
+      </div>
       <div class="result-team">${escapeHtml(winnerTeam)}</div>
       <div class="result-owner">${escapeHtml(ownerText)}</div>
+      ${originalSlot ? `<div class="result-original" title="Where this team's pick sat in the draft order before the lottery (worst record = #1).">Pre-lottery slot: #${originalSlot}</div>` : ""}
       ${result.note ? `<div class="result-note">${escapeHtml(result.note)}</div>` : ""}
     `;
 
     els.resultsGrid.appendChild(card);
   });
+
+  renderRequiredTrades();
 
   const hasResults = state.results.length > 0;
   els.copyDiscordBtn.disabled = !hasResults;
@@ -656,6 +730,49 @@ function renderResults() {
   els.finalizeSeasonBtn.disabled = !hasResults || state.isRunning;
   els.generateTradesBtn.disabled = !hasResults || state.isRunning;
   els.copyLotteryAnnouncementBtn.disabled = !hasResults;
+}
+
+function getRequiredTrades(results = state.results) {
+  if (!lotteryTrades) return [];
+  return lotteryTrades.computeRequiredTrades(results);
+}
+
+function buildPickLabel(pick, via) {
+  return via ? `Pick #${pick} (originally ${via})` : `Pick #${pick}`;
+}
+
+function buildRequiredTradesMarkup(trades, emptyText) {
+  if (!trades.length) return `<p class="helper-text">${escapeHtml(emptyText)}</p>`;
+  return `
+    <ol class="required-trade-list">
+      ${trades
+        .map(
+          (trade) => `
+            <li>
+              <strong>${escapeHtml(trade.fromTeam)}</strong> sends
+              <span class="pick-chip" title="${escapeHtml(buildPickLabel(trade.sendPick, trade.sendPickVia))}">Pick #${trade.sendPick}</span>
+              to <strong>${escapeHtml(trade.toTeam)}</strong> for
+              <span class="pick-chip" title="${escapeHtml(buildPickLabel(trade.receivePick, trade.receivePickVia))}">Pick #${trade.receivePick}</span>
+            </li>
+          `
+        )
+        .join("")}
+    </ol>
+  `;
+}
+
+function renderRequiredTrades() {
+  if (!els.requiredTradesList) return;
+
+  if (!state.results.length || state.isRunning) {
+    els.requiredTradesList.innerHTML = '<p class="helper-text">Trades appear here once the lottery is complete.</p>';
+    return;
+  }
+
+  els.requiredTradesList.innerHTML = buildRequiredTradesMarkup(
+    getRequiredTrades(),
+    "No trades needed — every pick is already held by the team the lottery assigned it to."
+  );
 }
 
 function getBallGroupLabel(ballCount) {
@@ -678,7 +795,9 @@ function buildLotteryTransparencyData() {
     };
 
     existing.entries.push({
+      slot: entry.standingIndex + 1,
       team: entry.name,
+      owner: entry.owner,
       balls: entry.balls,
       percent: chance * 100,
     });
@@ -705,42 +824,47 @@ function renderLotteryTransparency() {
     return;
   }
 
-  const groupMarkup = data.groups
-    .map((group) => `
-      <div class="odds-group">
-        <p class="odds-group-title">${escapeHtml(group.label)} — ${group.entries.length} teams · ${group.balls} balls · ${group.percent.toFixed(1)}%</p>
-        <div class="table-wrap">
-          <table class="odds-table">
-            <thead>
-              <tr>
-                <th>Team</th>
-                <th>Balls</th>
-                <th>Chance</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${group.entries
-                .map(
-                  (entry) => `
-                    <tr>
-                      <td>${escapeHtml(entry.team)}</td>
-                      <td>${entry.balls}</td>
-                      <td>${entry.percent.toFixed(1)}%</td>
-                    </tr>
-                  `
-                )
-                .join("")}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    `)
+  const rows = data.groups
+    .flatMap((group) => group.entries)
+    .sort((a, b) => a.slot - b.slot)
+    .map(
+      (entry) => `
+        <tr>
+          <td>#${entry.slot}</td>
+          <td>${escapeHtml(entry.team)}</td>
+          <td>${entry.owner && entry.owner !== entry.team ? escapeHtml(entry.owner) : '<span class="muted-text">Same team</span>'}</td>
+          <td>${entry.balls}</td>
+          <td>
+            <div class="odds-bar" aria-hidden="true"><span style="width: ${Math.min(100, entry.percent).toFixed(1)}%"></span></div>
+            ${entry.percent.toFixed(1)}%
+          </td>
+        </tr>
+      `
+    )
+    .join("");
+
+  const groupSummary = data.groups
+    .map((group) => `<div class="audit-row"><strong>${escapeHtml(group.label)}:</strong> <span>${group.entries.length} teams · ${group.balls} balls · ${group.percent.toFixed(1)}%</span></div>`)
     .join("");
 
   els.lotteryTransparency.innerHTML = `
     <p class="helper-text">Every ball is one weighted entry in the draw. More balls means a higher chance, and all entries are shown below from the same weighting used to run the lottery.</p>
-    ${groupMarkup}
+    <div class="table-wrap">
+      <table class="odds-table">
+        <thead>
+          <tr>
+            <th title="Draft slot before the lottery (worst record = #1).">Pre-lottery slot</th>
+            <th>Team</th>
+            <th title="The team that currently owns this pick. It receives whatever pick this entry wins.">Pick owner</th>
+            <th title="Lottery balls: 3 for the bottom four, 2 for the next four, 1 for everyone else.">Balls</th>
+            <th title="Share of all balls = chance of winning the first draw, before cooldown rules remove ineligible teams.">Chance (first draw)</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
     <div class="odds-totals">
+      ${groupSummary}
       <div class="audit-row"><strong>Total balls:</strong> <span>${data.totalBalls}</span></div>
       <div class="audit-row"><strong>Sum of displayed chances:</strong> <span>${data.totalPercent.toFixed(1)}%</span></div>
     </div>
@@ -804,7 +928,7 @@ function renderSeasonHistory() {
 
     item.innerHTML = `
       <div class="history-item-head">
-        <p class="history-item-title">${escapeHtml(formatTime(season.finalizedAt))}</p>
+        <p class="history-item-title">${season.year ? `${season.year} season · ` : ""}${escapeHtml(formatTime(season.finalizedAt))}</p>
         <button class="button secondary copy-season-btn" data-season-idx="${idx}">Copy Announcement</button>
       </div>
       <p class="history-item-line"><strong>#1:</strong> ${escapeHtml(season.numberOne || "Unknown")}</p>
@@ -824,6 +948,120 @@ function renderSeasonHistory() {
 
   els.copySeasonRecapBtn.disabled = false;
   els.copySeasonHistoryDiscordBtn.disabled = false;
+}
+
+function formatRuleSettings(settings) {
+  return `Picks: ${settings.lotteryPickCount} · Bottom-4: ${settings.bottomFourProtection ? "ON" : "OFF"} · Top-3 CD: ${settings.topThreeCooldown ? "ON" : "OFF"} · No Consec. #1: ${settings.noConsecutiveNumberOne ? "ON" : "OFF"}`;
+}
+
+function buildHistoryDetailMarkup(record) {
+  const orderRows = record.finalOrder
+    .map(
+      (pick) => `
+        <tr>
+          <td><strong>#${pick.pick}</strong></td>
+          <td>${escapeHtml(pick.team)}</td>
+          <td>${pick.owner && pick.owner !== pick.team ? escapeHtml(pick.owner) : '<span class="muted-text">Same team</span>'}</td>
+          <td>${pick.originalSlot ? `#${pick.originalSlot}` : "—"}</td>
+          <td>${buildMovementBadge(pick.originalSlot, pick.pick) || "—"}</td>
+        </tr>
+      `
+    )
+    .join("");
+
+  const oddsRows = record.odds
+    .slice()
+    .sort((a, b) => a.slot - b.slot)
+    .map(
+      (entry) => `
+        <tr>
+          <td>${entry.slot ? `#${entry.slot}` : "—"}</td>
+          <td>${escapeHtml(entry.team)}</td>
+          <td>${entry.owner && entry.owner !== entry.team ? escapeHtml(entry.owner) : '<span class="muted-text">Same team</span>'}</td>
+          <td>${entry.balls}</td>
+          <td>${entry.percent.toFixed(1)}%</td>
+        </tr>
+      `
+    )
+    .join("");
+
+  return `
+    <div class="audit-summary">
+      <div class="audit-row"><strong>Season:</strong> <span>${record.year}</span></div>
+      <div class="audit-row"><strong>Lottery run:</strong> <span>${escapeHtml(formatTime(record.runAt))}</span></div>
+      <div class="audit-row"><strong>#1 pick:</strong> <span>${escapeHtml(record.finalOrder[0]?.team || "Unknown")}</span></div>
+      <div class="audit-row"><strong>Rules:</strong> <span>${escapeHtml(formatRuleSettings(record.settings))}</span></div>
+      ${record.seed ? `<div class="audit-row"><strong>Seed:</strong> <span>${escapeHtml(record.seed)}</span></div>` : ""}
+    </div>
+    <h3 class="subheading">Final draft order</h3>
+    <div class="table-wrap">
+      <table class="odds-table">
+        <thead>
+          <tr><th>Pick</th><th>Team</th><th>Pick owner</th><th>Pre-lottery slot</th><th>Movement</th></tr>
+        </thead>
+        <tbody>${orderRows}</tbody>
+      </table>
+    </div>
+    <h3 class="subheading">Required trades (${record.trades.length})</h3>
+    ${buildRequiredTradesMarkup(record.trades, "No trades were needed for this lottery.")}
+    ${oddsRows ? `
+      <details class="history-details">
+        <summary>Odds used (${record.totalBalls} total balls)</summary>
+        <div class="table-wrap">
+          <table class="odds-table">
+            <thead>
+              <tr><th>Pre-lottery slot</th><th>Team</th><th>Pick owner</th><th>Balls</th><th>Chance (first draw)</th></tr>
+            </thead>
+            <tbody>${oddsRows}</tbody>
+          </table>
+        </div>
+      </details>
+    ` : ""}
+  `;
+}
+
+function renderLotteryHistory() {
+  const years = lotteryHistory.getSortedYears(state.lotteryHistory).map(String);
+  if (!years.includes(state.selectedHistoryYear)) {
+    state.selectedHistoryYear = years[0] || "";
+  }
+
+  els.historyYearSelect.innerHTML = years.length
+    ? years.map((year) => `<option value="${year}">${year}</option>`).join("")
+    : '<option value="">No saved lotteries</option>';
+  els.historyYearSelect.value = state.selectedHistoryYear;
+  els.historyYearSelect.disabled = !years.length;
+  els.deleteHistoryYearBtn.disabled = !years.length || state.isRunning;
+  els.exportHistoryBtn.disabled = !years.length;
+  els.importHistoryBtn.disabled = state.isRunning;
+  els.importHistoryInput.disabled = state.isRunning;
+
+  const record = state.lotteryHistory[state.selectedHistoryYear];
+  els.historyDetail.innerHTML = record
+    ? buildHistoryDetailMarkup(record)
+    : '<p class="helper-text">No lotteries saved yet. Every completed lottery is saved here automatically under its season year.</p>';
+}
+
+function getCurrentStep() {
+  if (state.teams.length < 2) return 1;
+  if (state.isRunning) return 3;
+  if (state.results.length) return 6;
+  return state.setupLocked ? 3 : 2;
+}
+
+function renderSteps() {
+  if (!els.flowSteps) return;
+  const current = getCurrentStep();
+  [...els.flowSteps.querySelectorAll("[data-step]")].forEach((item) => {
+    const step = Number(item.dataset.step);
+    item.classList.toggle("is-done", step < current);
+    item.classList.toggle("is-current", step === current);
+    if (step === current) {
+      item.setAttribute("aria-current", "step");
+    } else {
+      item.removeAttribute("aria-current");
+    }
+  });
 }
 
 function renderCurrentRules() {
@@ -887,6 +1125,7 @@ function renderLockState() {
   els.consecutiveOneToggle.disabled = locked;
   els.seedEnabledToggle.disabled = locked;
   els.seedInput.disabled = locked || !state.seedEnabled;
+  els.seasonYearInput.disabled = state.isRunning;
 
   els.startLotteryBtn.disabled = state.isRunning || state.teams.length < 2;
   els.resetBtn.disabled = state.isRunning;
@@ -903,12 +1142,15 @@ function renderLockState() {
 function render() {
   els.seedEnabledToggle.checked = state.seedEnabled;
   els.seedInput.value = state.seedText;
+  els.seasonYearInput.value = String(state.seasonYear);
   renderOwnerOptions();
   renderTeams();
   renderResults();
   renderLotteryTransparency();
   renderAuditPanel();
   renderSeasonHistory();
+  renderLotteryHistory();
+  renderSteps();
   renderCurrentRules();
   renderRuleHistory();
   renderTrades();
@@ -1095,7 +1337,35 @@ function buildRunMeta(seedUsed = "") {
   };
 }
 
-async function animateLottery(results) {
+function buildHistoryRecord(results, runContext) {
+  return {
+    year: runContext.year,
+    runAt: state.lastRunMeta?.timestamp || new Date().toISOString(),
+    savedAt: new Date().toISOString(),
+    finalOrder: results.map((result) => ({
+      pick: result.pick,
+      team: result.team,
+      owner: result.owner,
+      originalSlot: getOriginalSlot(result),
+      balls: result.balls,
+      note: result.note,
+    })),
+    odds: runContext.odds,
+    totalBalls: runContext.totalBalls,
+    trades: getRequiredTrades(results),
+    settings: getSettingsFromUi(),
+    seed: state.lastRunMeta?.seedEnabled ? state.lastRunMeta.seed : "",
+    ruleVersionId: getActiveRuleVersion()?.id || "",
+  };
+}
+
+function saveLotteryToHistory(results, runContext) {
+  state.lotteryHistory = lotteryHistory.upsertRecord(state.lotteryHistory, buildHistoryRecord(results, runContext));
+  state.selectedHistoryYear = String(runContext.year);
+  persistHistory();
+}
+
+async function animateLottery(results, runContext) {
   state.isRunning = true;
   state.results = [];
   render();
@@ -1120,7 +1390,8 @@ async function animateLottery(results) {
 
   els.machineOrb.classList.remove("spinning");
   els.machineText.textContent = "COMPLETE";
-  els.statusText.textContent = "The Flockville Draft Lottery is complete.";
+  saveLotteryToHistory(results, runContext);
+  els.statusText.textContent = `The Flockville Draft Lottery is complete. Results and trades were saved to history for ${runContext.year}.`;
   state.isRunning = false;
   render();
 }
@@ -1139,10 +1410,38 @@ function startLottery() {
     showToast("Lottery pick count was adjusted to a valid value.");
   }
 
+  const year = lotteryHistory.sanitizeYear(els.seasonYearInput.value);
+  if (year === null) {
+    showToast("Enter a valid season year (e.g. 2026) before running the lottery.");
+    els.seasonYearInput.focus();
+    return;
+  }
+  state.seasonYear = year;
+
+  if (state.lotteryHistory[String(year)]) {
+    const replace = confirm(
+      `A lottery for ${year} is already saved in history. Running again will replace the saved ${year} results and trades when the draw finishes. Continue?`
+    );
+    if (!replace) return;
+  }
+
+  const odds = buildLotteryTransparencyData();
+  const runContext = {
+    year,
+    totalBalls: odds.totalBalls,
+    odds: odds.entries.map((entry) => ({
+      slot: entry.standingIndex + 1,
+      team: entry.name,
+      owner: entry.owner,
+      balls: entry.balls,
+      percent: odds.totalBalls ? (entry.balls / odds.totalBalls) * 100 : 0,
+    })),
+  };
+
   const { randomFn, seedUsed } = getRandomSource();
   const results = runLotteryCalculation(randomFn);
   state.lastRunMeta = buildRunMeta(seedUsed);
-  animateLottery(results);
+  animateLottery(results, runContext);
 }
 
 function buildDiscordText() {
@@ -1174,6 +1473,16 @@ async function copyDiscordResults() {
   }
 }
 
+function downloadJsonFile(fileName, payload) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
 function downloadJson() {
   const payload = {
     schemaVersion: STORAGE_VERSION,
@@ -1188,15 +1497,73 @@ function downloadJson() {
     trades: state.trades,
     seasonHistory: state.seasonHistory,
     ruleHistory: state.ruleHistory,
+    seasonYear: state.seasonYear,
+    lotteryHistory: state.lotteryHistory,
   };
 
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `flockville-lottery-${new Date().toISOString().slice(0, 10)}.json`;
-  anchor.click();
-  URL.revokeObjectURL(url);
+  downloadJsonFile(`flockville-lottery-${new Date().toISOString().slice(0, 10)}.json`, payload);
+}
+
+function exportLotteryHistory() {
+  if (!Object.keys(state.lotteryHistory).length) return;
+  downloadJsonFile(
+    `flockville-lottery-history-${new Date().toISOString().slice(0, 10)}.json`,
+    lotteryHistory.buildHistoryExport(state.lotteryHistory)
+  );
+  showToast("Lottery history exported.");
+}
+
+function mergeImportedHistory(incoming) {
+  const preview = lotteryHistory.mergeHistory(state.lotteryHistory, incoming, { replaceConflicts: false });
+  let replaceConflicts = false;
+  if (preview.conflicts.length) {
+    replaceConflicts = confirm(
+      `The import contains lotteries for years already saved (${preview.conflicts.sort((a, b) => a - b).join(", ")}). Replace them with the imported versions? Choose Cancel to keep your saved versions.`
+    );
+  }
+
+  const { merged, added, conflicts } = lotteryHistory.mergeHistory(state.lotteryHistory, incoming, { replaceConflicts });
+  state.lotteryHistory = merged;
+  persistHistory();
+  return { added: added.length, replaced: replaceConflicts ? conflicts.length : 0 };
+}
+
+async function importLotteryHistory() {
+  if (state.isRunning) return;
+
+  const file = els.importHistoryInput.files?.[0];
+  if (!file) {
+    showToast("Choose a history JSON file first.");
+    return;
+  }
+
+  try {
+    const incoming = lotteryHistory.extractHistoryFromPayload(JSON.parse(await file.text()));
+    if (!Object.keys(incoming).length) {
+      showToast("No saved lotteries were found in that file.");
+      return;
+    }
+
+    const { added, replaced } = mergeImportedHistory(incoming);
+    render();
+    showToast(`History import complete: ${added} added, ${replaced} replaced.`);
+  } catch {
+    showToast("Invalid history file. Please choose a valid export.");
+  } finally {
+    els.importHistoryInput.value = "";
+  }
+}
+
+function deleteSelectedHistoryYear() {
+  const year = state.selectedHistoryYear;
+  if (!year || !state.lotteryHistory[year] || state.isRunning) return;
+  if (!confirm(`Delete the saved ${year} lottery (results, odds, and trades)? This cannot be undone.`)) return;
+
+  state.lotteryHistory = lotteryHistory.removeYear(state.lotteryHistory, year);
+  state.selectedHistoryYear = "";
+  persistHistory();
+  render();
+  showToast(`Deleted the saved ${year} lottery.`);
 }
 
 function resetApp() {
@@ -1205,7 +1572,7 @@ function resetApp() {
     return;
   }
 
-  if (!confirm("Reset all teams, history, and lottery results?")) return;
+  if (!confirm("Reset all teams, settings, trades, finalized seasons, and current lottery results? Saved Past Lotteries are kept (delete them individually in History).")) return;
 
   state.teams = [];
   state.results = [];
@@ -1319,6 +1686,7 @@ function finalizeSeason() {
 
   state.seasonHistory.unshift({
     id: createId(),
+    year: state.seasonYear,
     finalizedAt: new Date().toISOString(),
     numberOne: state.results[0]?.team || "Unknown",
     topThree: state.results.slice(0, 3).map((result) => result.team),
@@ -1331,9 +1699,10 @@ function finalizeSeason() {
   state.seasonHistory = state.seasonHistory.slice(0, MAX_SEASON_HISTORY);
   state.results = [];
   state.lastRunMeta = null;
+  state.seasonYear = lotteryHistory.sanitizeYear(state.seasonYear + 1) ?? state.seasonYear;
 
   els.machineText.textContent = "READY";
-  els.statusText.textContent = "Season finalized. Ready to set up the next draw.";
+  els.statusText.textContent = `Season finalized. Ready to set up the ${state.seasonYear} draw.`;
 
   render();
   showToast("Season finalized and archived.");
@@ -1365,6 +1734,8 @@ async function importJson() {
     state.seedEnabled = restored.seedEnabled;
     state.seedText = restored.seedText;
     state.lastRunMeta = restored.lastRunMeta;
+    state.seasonYear = restored.seasonYear;
+    if (Object.keys(restored.lotteryHistory).length) mergeImportedHistory(restored.lotteryHistory);
 
     applySettingsToUi(restored.settings);
     if (!state.ruleHistory.length) snapshotRuleVersion("Rules from import.");
@@ -1514,30 +1885,28 @@ function generateTradesFromResults() {
     return;
   }
 
-  const tradedPicks = state.results.filter((result) => result.owner && result.owner !== result.team);
-  if (!tradedPicks.length) {
-    showToast("No traded picks found in the current results. All picks are owned by their original teams.");
+  const requiredTrades = getRequiredTrades();
+  if (!requiredTrades.length) {
+    showToast("No trades needed. Every pick is already held by the team the lottery assigned it to.");
     return;
   }
 
   const now = new Date().toISOString();
   let added = 0;
-  tradedPicks.forEach((result) => {
-    const alreadyExists = state.trades.some(
-      (trade) =>
-        trade.source === "auto" &&
-        trade.fromTeam === result.team &&
-        trade.toTeam === result.owner &&
-        trade.assets.some((asset) => asset.includes(`Pick #${result.pick}`))
-    );
+  requiredTrades.forEach((trade) => {
+    const notes = `Auto-generated from lottery results: ${trade.summary}.`;
+    const alreadyExists = state.trades.some((entry) => entry.source === "auto" && entry.notes === notes);
     if (alreadyExists) return;
 
     state.trades.push({
       id: createId(),
-      fromTeam: result.team,
-      toTeam: result.owner,
-      assets: [`Pick #${result.pick} (from lottery draw)`],
-      notes: "Auto-generated from lottery results.",
+      fromTeam: trade.fromTeam,
+      toTeam: trade.toTeam,
+      assets: [
+        `${trade.fromTeam} sends ${buildPickLabel(trade.sendPick, trade.sendPickVia)}`,
+        `${trade.toTeam} sends ${buildPickLabel(trade.receivePick, trade.receivePickVia)}`,
+      ],
+      notes,
       createdAt: now,
       source: "auto",
     });
@@ -1545,9 +1914,9 @@ function generateTradesFromResults() {
   });
 
   if (added === 0) {
-    showToast("Auto-generated trades already exist for all traded picks.");
+    showToast("Auto-generated trades already exist for every required pick swap.");
   } else {
-    showToast(`Generated ${added} trade${added === 1 ? "" : "s"} from lottery results.`);
+    showToast(`Generated ${added} trade${added === 1 ? "" : "s"} to put the picks in lottery order.`);
   }
   render();
 }
@@ -1694,6 +2063,23 @@ els.cancelTradeEditBtn.addEventListener("click", () => {
   render();
 });
 els.copyTradeDiscordBtn.addEventListener("click", copyTradeDiscordList);
+els.historyYearSelect.addEventListener("change", () => {
+  state.selectedHistoryYear = els.historyYearSelect.value;
+  renderLotteryHistory();
+});
+els.deleteHistoryYearBtn.addEventListener("click", deleteSelectedHistoryYear);
+els.exportHistoryBtn.addEventListener("click", exportLotteryHistory);
+els.importHistoryBtn.addEventListener("click", importLotteryHistory);
+els.seasonYearInput.addEventListener("change", () => {
+  if (state.isRunning) return;
+  const year = lotteryHistory.sanitizeYear(els.seasonYearInput.value);
+  if (year === null) {
+    showToast("Season year must be a 4-digit year.");
+  } else {
+    state.seasonYear = year;
+  }
+  render();
+});
 
 els.setupLockBtn.addEventListener("click", () => {
   if (state.isRunning) return;
@@ -1724,6 +2110,7 @@ els.seedInput.addEventListener("change", () => {
 });
 
 restoreStateFromStorage();
+restoreHistoryFromStorage();
 if (!state.ruleHistory.length) snapshotRuleVersion("Initial rules.");
 els.seedEnabledToggle.checked = state.seedEnabled;
 els.seedInput.value = state.seedText;

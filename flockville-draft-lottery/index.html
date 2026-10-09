@@ -16,15 +16,34 @@
         <h1>Draft Lottery</h1>
         <p class="tagline">Fair. Competitive. No Tanking.</p>
         <div class="button-row hero-actions">
-          <a class="button secondary" href="info.html">How It Works</a>
+          <a class="button secondary" href="info.html">Full Guide</a>
         </div>
       </div>
     </header>
 
-    <section class="panel controls">
+    <nav class="site-nav" aria-label="Main sections">
+      <a href="#setup">Lottery</a>
+      <a href="#results">Results</a>
+      <a href="#history">History</a>
+      <a href="#how-it-works">How it works</a>
+    </nav>
+
+    <section class="panel flow-panel" aria-labelledby="flowHeading">
+      <p class="eyebrow">START HERE</p>
+      <h2 id="flowHeading">Step-by-step</h2>
+      <ol id="flowSteps" class="flow-steps">
+        <li data-step="1"><a href="#setup"><span class="step-num">1</span><span><strong>Enter teams &amp; standings</strong><small>Worst record first. Set pick owners for traded picks.</small></span></a></li>
+        <li data-step="2"><a href="#odds"><span class="step-num">2</span><span><strong>Review odds</strong><small>Check balls and chances, then lock setup.</small></span></a></li>
+        <li data-step="3"><a href="#draw"><span class="step-num">3</span><span><strong>Run the lottery</strong><small>Confirm the season year and start the draw.</small></span></a></li>
+        <li data-step="4"><a href="#results"><span class="step-num">4</span><span><strong>View results &amp; trades</strong><small>See the final order and every pick swap needed.</small></span></a></li>
+        <li data-step="5"><a href="#history"><span class="step-num">5</span><span><strong>Saved to history</strong><small>Each year is kept automatically. Export it to back it up.</small></span></a></li>
+      </ol>
+    </section>
+
+    <section id="setup" class="panel controls">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">SETUP</p>
+          <p class="eyebrow">STEP 1 · SETUP</p>
           <h2>Lottery Teams</h2>
         </div>
         <div class="button-row">
@@ -36,7 +55,8 @@
       </div>
 
       <p class="helper-text">
-        Enter each non-playoff team in order from worst record to best record.
+        Enter each non-playoff team in order from worst record to best record. This is the
+        <strong>pre-lottery draft order</strong> (Order #1 = worst record = Pick #1 before the lottery).
         The first four teams receive 3 balls, the next four receive 2 balls,
         and all remaining teams receive 1 ball.
       </p>
@@ -56,12 +76,12 @@
         <table>
           <thead>
             <tr>
-              <th>Order</th>
+              <th title="Pre-lottery draft slot. #1 is the worst record.">Order</th>
               <th>Team</th>
-              <th>Pick Owner</th>
-              <th>Balls</th>
-              <th>Previous Top 3?</th>
-              <th>Previous #1?</th>
+              <th title="The team that currently owns this team's first-round pick. Change it if the pick was traded.">Pick Owner</th>
+              <th title="Lottery balls: 3 for the bottom four, 2 for the next four, 1 for everyone else.">Balls</th>
+              <th title="Finished in the Top 3 of last year's lottery (Top-3 cooldown).">Previous Top 3?</th>
+              <th title="Won last year's #1 pick (no consecutive #1).">Previous #1?</th>
               <th></th>
             </tr>
           </thead>
@@ -125,37 +145,80 @@
       </label>
     </section>
 
-    <section class="panel draw-panel">
+    <section id="odds" class="panel">
+      <div>
+        <p class="eyebrow">STEP 2 · TRANSPARENCY</p>
+        <h2>Lottery Odds Breakdown</h2>
+        <p class="helper-text">See each team's exact weighted entries and chance to win so everyone can verify the draw setup is fair.</p>
+      </div>
+      <div id="lotteryTransparency" class="lottery-transparency"></div>
+    </section>
+
+    <section id="draw" class="panel draw-panel">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">LIVE DRAW</p>
+          <p class="eyebrow">STEP 3 · LIVE DRAW</p>
           <h2>Run the Lottery</h2>
         </div>
-        <button id="startLotteryBtn" class="button glow">Start Lottery</button>
+        <div class="draw-start">
+          <label class="year-field" title="Results and trades are saved to history under this year. Re-running a saved year asks before replacing it.">
+            <span>Season year</span>
+            <input id="seasonYearInput" type="number" min="1000" max="9999" step="1" inputmode="numeric" />
+          </label>
+          <button id="startLotteryBtn" class="button glow">Start Lottery</button>
+        </div>
       </div>
 
       <div class="machine">
         <div class="machine-orb">
           <div id="machineText" class="machine-text">READY</div>
         </div>
-        <p id="statusText" class="status-text">Add teams, confirm the settings, and start the draw.</p>
+        <p id="statusText" class="status-text" aria-live="polite">Add teams, confirm the settings, and start the draw.</p>
+      </div>
+    </section>
+
+    <section id="results" class="panel">
+      <div>
+        <p class="eyebrow">STEP 4 · RESULTS</p>
+        <h2>Final Draft Order</h2>
+        <p class="helper-text">Each card shows the pick won, the team whose lottery entry won it, who owns the pick, and how far it moved from the pre-lottery order (▲ up / ▼ down).</p>
+      </div>
+      <div id="resultsGrid" class="results-grid" aria-live="polite"></div>
+
+      <div class="required-trades">
+        <h3 class="subheading">Trades required to match the lottery order</h3>
+        <p class="helper-text">Before the lottery, Pick #N sits with whoever owns the Nth-worst team's pick. These swaps move every pick to the team the lottery assigned it to, using the fewest trades possible.</p>
+        <div id="requiredTradesList"></div>
       </div>
 
-      <div id="resultsGrid" class="results-grid"></div>
       <div class="button-row draw-actions">
-        <button id="finalizeSeasonBtn" class="button secondary" disabled>Finalize Season</button>
-        <button id="generateTradesBtn" class="button secondary" disabled>Generate Trades from Results</button>
+        <button id="finalizeSeasonBtn" class="button secondary" disabled title="Archive this season, set cooldown flags for next year, and advance the season year.">Finalize Season</button>
+        <button id="generateTradesBtn" class="button secondary" disabled title="Add every required pick swap to the Trade List Builder below.">Generate Trades from Results</button>
         <button id="copyLotteryAnnouncementBtn" class="button secondary" disabled>Copy Lottery Announcement</button>
       </div>
     </section>
 
-    <section class="panel">
-      <div>
-        <p class="eyebrow">TRANSPARENCY</p>
-        <h2>Lottery Odds Breakdown</h2>
-        <p class="helper-text">See each team's exact weighted entries and chance to win so everyone can verify the draw setup is fair.</p>
+    <section id="history" class="panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">STEP 5 · HISTORY</p>
+          <h2>Past Lotteries</h2>
+          <p class="helper-text">Every completed lottery is saved in this browser by season year, including the final order, odds used, and required trades. Export to back up or share; import to restore.</p>
+        </div>
       </div>
-      <div id="lotteryTransparency" class="lottery-transparency"></div>
+      <div class="history-toolbar">
+        <label class="year-field">
+          <span>View year</span>
+          <select id="historyYearSelect" aria-label="Select a saved lottery year"></select>
+        </label>
+        <div class="button-row">
+          <button id="deleteHistoryYearBtn" class="button danger" disabled>Delete This Year</button>
+          <button id="exportHistoryBtn" class="button secondary" disabled>Export History</button>
+          <input id="importHistoryInput" type="file" accept=".json,application/json" aria-label="History JSON file" />
+          <button id="importHistoryBtn" class="button secondary">Import History</button>
+        </div>
+      </div>
+      <div id="historyDetail" class="history-detail"></div>
     </section>
 
     <section class="panel">
@@ -172,8 +235,8 @@
       <div class="section-heading">
         <div>
           <p class="eyebrow">SEASONS</p>
-          <h2>Lottery History</h2>
-          <p class="helper-text">Finalized seasons with full draw order and the rules in effect at the time.</p>
+          <h2>Finalized Seasons</h2>
+          <p class="helper-text">Seasons archived with <strong>Finalize Season</strong> (used for cooldown flags), with full draw order and the rules in effect at the time.</p>
         </div>
         <button id="copySeasonRecapBtn" class="button secondary" disabled>Copy Season Recap</button>
       </div>
@@ -251,6 +314,36 @@
       </div>
     </section>
 
+    <section id="how-it-works" class="panel info-content">
+      <p class="eyebrow">HOW IT WORKS</p>
+      <h2>The lottery, explained</h2>
+      <div class="explain-grid">
+        <article>
+          <h3 class="subheading">Who is eligible</h3>
+          <p class="helper-text">Every non-playoff team enters, listed from worst record to best. Ties are broken by Strength of Schedule, then head-to-head (if available), then a seeded coin flip.</p>
+        </article>
+        <article>
+          <h3 class="subheading">The odds</h3>
+          <p class="helper-text">The four worst teams get 3 balls, the next four get 2, and everyone else gets 1. A team's chance on each draw is its balls divided by the balls still in the machine.</p>
+        </article>
+        <article>
+          <h3 class="subheading">How the draw works</h3>
+          <p class="helper-text">Picks #1 through #8 (configurable) are drawn one at a time. A drawn team is removed. Teams not drawn fill the remaining picks in reverse record order.</p>
+          <ul>
+            <li><strong>Top-3 cooldown:</strong> last year's Top 3 can't land in the Top 3.</li>
+            <li><strong>No consecutive #1:</strong> last year's #1 can't win #1 again.</li>
+            <li><strong>Bottom-four protection:</strong> the four worst teams can't fall below Pick #8.</li>
+          </ul>
+        </article>
+        <article>
+          <h3 class="subheading">How trades are determined</h3>
+          <p class="helper-text">Before the lottery, Pick #N belongs to the Nth-worst team's pick owner (Madden's default order). After the draw, the app works out the pick swaps that move every pick to the team the lottery assigned it. It closes each chain of moves with the fewest swaps, skips picks that don't move, and makes each swap between the <em>current</em> owners, so traded picks are handled correctly.</p>
+          <p class="helper-text">Example: if the 3rd-worst team wins #1, "Team C sends Pick #3 to Team A for Pick #1".</p>
+        </article>
+      </div>
+      <p class="helper-text">Want more detail? Read the <a href="info.html">full guide</a>.</p>
+    </section>
+
     <footer>
       <img src="assets/flockville-lettering.png" alt="Flockville lettering logo" />
       <p>No Cheese. Just Ball.</p>
@@ -258,6 +351,8 @@
   </main>
 
   <script src="lottery-order.js"></script>
+  <script src="lottery-trades.js"></script>
+  <script src="lottery-history.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
