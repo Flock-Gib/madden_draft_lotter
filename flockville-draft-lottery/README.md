@@ -262,6 +262,8 @@ npm run test:browser
 
 On Linux, use `npx playwright install --with-deps chromium` if browser system dependencies are missing. Python 3 is required for the browser suite's configured static web server. Playwright runs desktop (1280px) and mobile (390px) projects. The Node baseline can also run directly with `node --test flockville-draft-lottery/*.test.js`. Verify the UI manually using the following checklist:
 
+The layout suite additionally checks 1920px, 768px, and 375px widths and attaches full-page screenshots to its test results for visual review. It checks panel/card overflow, touch-target sizing, centered dialogs, keyboard focus, Chromium accessibility-tree control names, reduced motion, and representative text/control contrast. These checks supplement, rather than replace, manual screen-reader and visual review. Run just these checks with `npx playwright test browser-tests/layout.spec.js`.
+
 - New lottery draws are recorded in history after **Finalize Season**.
 - The full draw order expands correctly per season entry.
 - The "Rules" line on each season entry matches the settings that were in effect.

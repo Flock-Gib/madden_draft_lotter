@@ -673,8 +673,8 @@ function renderTeams() {
         <strong>${index + 1}</strong>
         <button class="remove-btn move-down" title="Move down" ${locked ? "disabled" : ""}>↓</button>
       </td>
-      <td><select class="team-name-edit" ${locked ? "disabled" : ""}></select>${buildTieBreakBadge(entriesById.get(team.id) || {})}</td>
-      <td><input class="owner-edit" value="${escapeHtml(team.owner)}" ${locked ? "disabled" : ""} /></td>
+      <td><select class="team-name-edit" aria-label="${escapeHtml(team.name)} team name" ${locked ? "disabled" : ""}></select>${buildTieBreakBadge(entriesById.get(team.id) || {})}</td>
+      <td><input class="owner-edit" aria-label="${escapeHtml(team.name)} pick owner" value="${escapeHtml(team.owner)}" ${locked ? "disabled" : ""} /></td>
       <td><strong>${getBallCount(index)}</strong></td>
       <td><input aria-label="${escapeHtml(team.name)} previous top three" class="inline-check previous-top-three" type="checkbox" ${team.previousTopThree ? "checked" : ""} ${locked || protection.automatic || hasProtectionOverride("previousTopThree") ? "disabled" : ""} /></td>
       <td><input aria-label="${escapeHtml(team.name)} previous number one" class="inline-check previous-number-one" type="checkbox" ${team.previousNumberOne ? "checked" : ""} ${locked || protection.automatic || hasProtectionOverride("previousNumberOne") ? "disabled" : ""} /></td>
