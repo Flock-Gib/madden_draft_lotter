@@ -400,7 +400,7 @@
         <p class="helper-text">Copy the finished draft order, export JSON, or import a previous state backup. JSON exports require Web Crypto on HTTPS or localhost to generate a SHA-256 checksum; unavailable checksum generation reports an error rather than exporting unchecked data.</p>
       </div>
       <div class="button-row">
-        <input id="importJsonInput" type="file" accept=".json,application/json" />
+        <input id="importJsonInput" type="file" accept=".json,application/json" aria-label="State backup JSON file" />
         <button id="importJsonBtn" class="button secondary">Import JSON</button>
         <button id="copyDiscordBtn" class="button secondary" disabled>Copy Discord Results</button>
         <button id="copySeasonHistoryDiscordBtn" class="button secondary" disabled>Copy All Season History</button>
