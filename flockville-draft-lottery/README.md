@@ -142,7 +142,7 @@ Select **Playoff teams** (2–64, default 8), then **Generate Bracket** from the
 
 **Protection Flag Sources**, below Active Lottery Rules, explains the source of Previous #1 and Previous Top 3 separately. **Override Previous #1** or **Override Previous Top 3** opens a team-selection dialog for only that flag. Select original entrants and save; cancellation leaves both sources unchanged. The other flag continues using its existing source. **Clear Protection Overrides** resumes automatic sourcing where the exact prior year exists.
 
-Overrides apply only to the selected season and do not edit history or pick ownership. Changing the season clears season-scoped overrides. The older full manual-checkbox fallback remains useful when prior-year history is missing; review both flag columns explicitly rather than assuming absent history means no protections.
+Per-flag overrides apply only to their recorded season and do not edit history or pick ownership. Selecting another year makes them inactive; returning to their year reuses them until you clear the overrides. The older full manual-checkbox fallback is cleared when the selected year changes and remains useful when prior-year history is missing; review both flag columns explicitly rather than assuming absent history means no protections.
 
 ### Explicit recovery
 

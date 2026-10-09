@@ -174,15 +174,15 @@ test("mobile cards have touch-friendly working reorder buttons", async ({ page }
   await expect(page.locator("#mobileTeamList")).toBeVisible();
   await expect(page.locator("#teamTableBody")).toBeHidden();
   const first = page.locator("#mobileTeamList > *").first();
-  await expect(first).toContainText("Raiders");
+  await expect(first.locator(".mobile-team-heading strong")).toHaveText("#1 Raiders");
   const down = first.getByRole("button", { name: /down|↓/i });
   const box = await down.boundingBox();
   expect(box.height).toBeGreaterThanOrEqual(44);
   expect(box.width).toBeGreaterThanOrEqual(44);
   await down.click();
-  await expect(page.locator("#mobileTeamList > *").first()).toContainText("Giants");
+  await expect(page.locator("#mobileTeamList > *").first().locator(".mobile-team-heading strong")).toHaveText("#1 Giants");
   await page.reload();
-  await expect(page.locator("#mobileTeamList > *").first()).toContainText("Giants");
+  await expect(page.locator("#mobileTeamList > *").first().locator(".mobile-team-heading strong")).toHaveText("#1 Giants");
   const card = page.locator("#mobileTeamList > *").first();
   for (const control of await card.locator("select, input, button").all()) {
     const target = await control.boundingBox();
