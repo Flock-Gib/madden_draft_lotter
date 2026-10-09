@@ -406,6 +406,8 @@ test("dry runs and exports are isolated from all live fields and localStorage un
   a.evaluate("createDryRun(() => 0.9)");
   assert.equal(a.node("lotteryPickCount").value, "invalid");
   assert.equal(a.state.dryRun.finalOrder.length, 8);
+  assert.match(a.node("dryRunResults").innerHTML, /title="Original slot before the lottery/);
+  assert.match(a.node("dryRunResults").innerHTML, /movement-badge/);
   assert.notEqual(JSON.stringify(a.state.dryRun.finalOrder), JSON.stringify(a.state.results));
   await a.evaluate("exportDryRun()");
   assert.equal(a.context.downloads.length, 1);
@@ -555,6 +557,8 @@ test("tie-break badges explain all applied rules and safely escape tied opponent
   assert.deepEqual(Array.from(first.tieBreaks, (entry) => entry.reason).sort(), ["Coin flip", "Strength of Schedule"]);
   a.context.entry = first;
   const badge = a.evaluate("buildTieBreakBadge(entry)");
+  assert.match(badge, /Standings tie-break:/);
+  assert.match(badge, /original standings slot only, not the lottery draw/);
   assert.match(badge, /Strength of Schedule/);
   assert.match(badge, /Coin flip/);
   assert.match(badge, /Tied with .*; ordering by Strength of Schedule/);
@@ -612,6 +616,12 @@ test("dry-run snapshots preserve teams, owners, settings and seed across live ed
   a.state.seedText = "edited-live-seed";
   a.node("lotteryPickCount").value = "4";
   a.node("bottomProtectionToggle").checked = false;
+  a.evaluate("renderDryRun()");
+  assert.match(a.node("dryRunSnapshotSummary").innerHTML, /snapshot-seed/);
+  assert.match(a.node("dryRunSnapshotSummary").innerHTML, /Picks: 8/);
+  assert.match(a.node("dryRunSnapshotSummary").innerHTML, /Snapshot year:<\/strong> 2026/);
+  assert.match(a.node("dryRunSnapshotSummary").innerHTML, /Snapshot only: later setup changes do not update this preview/);
+  assert.doesNotMatch(a.node("dryRunSnapshotSummary").innerHTML, /edited-live-seed/);
   assert.equal(JSON.stringify(a.state.dryRun), snapshot);
   for (const invalid of ["", "bad", "2025", "2026"]) {
     a.node("dryRunYearInput").value = invalid;
@@ -633,10 +643,17 @@ test("dry-run snapshots preserve teams, owners, settings and seed across live ed
   assert.equal(saved.seed, "snapshot-seed");
   assert.equal(saved.settings.lotteryPickCount, 8);
   assert.equal(saved.settings.bottomFourProtection, true);
+  assert.equal(saved.source, "dry-run");
+  assert.equal(saved.teams[0].name, "Team 0");
+  assert.equal(saved.teams[0].headToHead["Team 1"].wins, 1);
   assert.deepEqual(Array.from(saved.finalOrder, (entry) => ({ team: entry.team, owner: entry.owner })), savedOrder);
   assert.equal(a.state.teams[0].name, "Edited live team");
   assert.equal(a.state.teams[0].owner, "Edited live owner");
   assert.equal(a.state.seedText, "edited-live-seed");
+  const b = app(a.storage);
+  b.evaluate("restoreHistoryFromStorage()");
+  assert.equal(b.state.lotteryHistory["2028"].teams[0].name, "Team 0");
+  assert.equal(b.state.lotteryHistory["2028"].seed, "snapshot-seed");
 });
 
 test("flag audit includes actual prior winners outside active setup and prior provenance", () => {
@@ -692,4 +709,34 @@ test("trade-table clipboard fallback downloads a dated filename", async () => {
   await a.evaluate("exportTradesTable()");
   assert.match(a.context.downloads[0].name, /^flockville-trades-\d{4}-\d{2}-\d{2}\.txt$/);
   assert.match(a.context.downloads[0].text, /Table export/);
+});
+
+test("rule versions list every snapshot with active ID, captured timestamp and chronological changes", () => {
+  const a = app();
+  a.evaluate("snapshotRuleVersion('Original')");
+  const firstId = a.state.ruleHistory[0].id;
+  a.node("lotteryPickCount").value = "6";
+  a.evaluate("snapshotRuleVersion('Six picks'); renderRuleHistory(); renderCurrentRules()");
+  const items = a.node("ruleHistoryList").children;
+  assert.equal(items.length, 2);
+  assert.match(items[0].innerHTML, /Active version/);
+  assert.ok(items[0].innerHTML.includes(a.state.ruleHistory[0].id));
+  assert.ok(items[0].innerHTML.includes(a.state.ruleHistory[0].effectiveAt));
+  assert.match(items[0].innerHTML, /Lottery picks: 8 → 6/);
+  assert.match(items[0].innerHTML, /restore-rule-btn[^>]*disabled/);
+  assert.match(items[1].innerHTML, /Historical version/);
+  assert.ok(items[1].innerHTML.includes(firstId));
+  assert.match(items[1].innerHTML, /Initial rule snapshot/);
+  assert.doesNotMatch(items[1].innerHTML, /restore-rule-btn[^>]*disabled/);
+  assert.ok(a.node("currentRulesPanel").innerHTML.includes(a.state.ruleHistory[0].id));
+  a.context.firstId = firstId;
+  a.evaluate("restoreRuleVersion(firstId)");
+  assert.equal(a.state.ruleHistory.length, 3);
+  a.evaluate("restoreRuleVersion(firstId)");
+  assert.equal(a.state.ruleHistory.length, 4);
+  assert.notEqual(a.state.ruleHistory[0].id, a.state.ruleHistory[1].id);
+  assert.equal(a.state.ruleHistory[0].settings.lotteryPickCount, 8);
+  a.context.activeId = a.state.ruleHistory[0].id;
+  a.evaluate("restoreRuleVersion(activeId)");
+  assert.equal(a.state.ruleHistory.length, 4);
 });

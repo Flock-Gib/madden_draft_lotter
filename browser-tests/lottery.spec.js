@@ -178,6 +178,30 @@ test("mobile cards have touch-friendly working reorder buttons", async ({ page }
   await expect(page.locator("#mobileTeamList > *").first()).toContainText("Giants");
   await page.reload();
   await expect(page.locator("#mobileTeamList > *").first()).toContainText("Giants");
+  const card = page.locator("#mobileTeamList > *").first();
+  for (const control of await card.locator("select, input, button").all()) {
+    const target = await control.boundingBox();
+    expect(target.width).toBeGreaterThanOrEqual(44);
+    expect(target.height).toBeGreaterThanOrEqual(44);
+  }
+  await card.locator(".mobile-name").selectOption("Arizona Cardinals");
+  await card.locator(".mobile-owner").selectOption("Atlanta Falcons");
+  await card.locator(".previous-top-three").check();
+  await card.locator(".previous-number-one").check();
+  await page.reload();
+  await expect(card.locator(".mobile-name")).toHaveValue("Arizona Cardinals");
+  await expect(card.locator(".mobile-owner")).toHaveValue("Atlanta Falcons");
+  await expect(card.locator(".previous-top-three")).toBeChecked();
+  await expect(card.locator(".previous-number-one")).toBeChecked();
+  await page.locator("#setupLockBtn").click();
+  for (const control of await card.locator("select, input, button").all()) {
+    await expect(control).toBeDisabled();
+  }
+  await page.locator("#setupLockBtn").click();
+  await card.locator(".mobile-remove").click();
+  await expect(page.locator("#mobileTeamList > *")).toHaveCount(7);
+  await page.reload();
+  await expect(page.locator("#mobileTeamList > *")).toHaveCount(7);
 });
 
 test("dry-run save requires a new year and keeps the live order empty", async ({ page }) => {
@@ -291,4 +315,26 @@ test("tie-break indicators explain imported equal records", async ({ page }, tes
   const container = testInfo.project.name === "mobile" ? "#mobileTeamList" : "#teamTableBody";
   await expect(page.locator(`${container} .tie-break-badge`)).toHaveCount(2);
   await expect(page.locator(`${container} .tie-break-badge`).first()).toHaveAttribute("title", /Strength of Schedule/);
+});
+
+test("hidden archived history remains exportable and supplies protection", async ({ page }) => {
+  await demo(page);
+  await page.locator("#manualProtectionToggle").uncheck();
+  await page.locator("#seasonYearInput").fill("2026");
+  await page.locator("#seasonYearInput").dispatchEvent("change");
+  const record = {
+    year: 2025, source: "manual", completeness: "top-three", archived: true,
+    finalOrder: ["Raiders", "Giants", "Titans"].map((team, index) => ({ team, pick: index + 1 })),
+  };
+  await page.locator("#importHistoryInput").setInputFiles({
+    name: "archived.json", mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({ lotteryHistory: { 2025: record } })),
+  });
+  await page.locator("#importHistoryBtn").click();
+  await expect(page.locator("#showArchivedToggle")).not.toBeChecked();
+  await expect(page.locator("#historyYearSelect")).toHaveValue("");
+  await expect(page.locator("#teamTableBody .previous-number-one:checked")).toHaveCount(1);
+  await expect(page.locator("#teamTableBody .previous-top-three:checked")).toHaveCount(3);
+  const backup = await download(page, "#exportHistoryBtn");
+  expect(JSON.parse(backup.content).lotteryHistory["2025"].archived).toBe(true);
 });

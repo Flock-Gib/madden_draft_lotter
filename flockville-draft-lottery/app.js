@@ -134,6 +134,7 @@ let checksumWarning = "";
   "finalizeTradeList", "confirmFinalizeBtn", "cancelFinalizeBtn", "dryRunBtn",
   "dryRunPanel", "dryRunResults", "dryRunTrades", "dryRunYearInput", "saveDryRunBtn",
   "discardDryRunBtn", "exportDryRunBtn", "generateBracketBtn", "playoffTeamCount",
+  "dryRunSnapshotSummary",
   "bracketPanel", "exportBracketCsvBtn", "exportBracketTextBtn", "flagSourcePanel",
   "bracketResults", "flagSourceSummary",
   "overrideNumberOneBtn", "overrideTopThreeBtn", "clearProtectionOverrideBtn",
@@ -1017,7 +1018,7 @@ function buildHistoryDetailMarkup(record) {
           <td><strong>#${pick.pick}</strong></td>
           <td>${escapeHtml(pick.team)}</td>
           <td>${pick.owner && pick.owner !== pick.team ? escapeHtml(pick.owner) : '<span class="muted-text">Same team</span>'}</td>
-          <td>${pick.originalSlot ? `#${pick.originalSlot}` : "—"}</td>
+          <td title="Original slot in the pre-lottery draft order (worst record is #1).">${pick.originalSlot ? `#${pick.originalSlot}` : "—"}</td>
           <td>${buildMovementBadge(pick.originalSlot, pick.pick) || "—"}</td>
         </tr>
       `
@@ -1053,7 +1054,7 @@ function buildHistoryDetailMarkup(record) {
     <div class="table-wrap">
       <table class="odds-table">
         <thead>
-          <tr><th>Pick</th><th>Team</th><th>Pick owner</th><th>Pre-lottery slot</th><th>Movement</th></tr>
+          <tr><th>Pick</th><th>Team</th><th title="The team that owned this pick when the draw was saved.">Pick owner</th><th title="Original slot in the draft order before the lottery (worst record is #1).">Pre-lottery slot</th><th title="Places gained or lost compared with the original pre-lottery slot.">Movement</th></tr>
         </thead>
         <tbody>${orderRows}</tbody>
       </table>
@@ -1071,7 +1072,7 @@ function buildHistoryDetailMarkup(record) {
         <div class="table-wrap">
           <table class="odds-table">
             <thead>
-              <tr><th>Pre-lottery slot</th><th>Team</th><th>Pick owner</th><th>Balls</th><th>Chance (first draw)</th></tr>
+              <tr><th title="Original slot before the lottery (worst record is #1).">Pre-lottery slot</th><th>Team</th><th title="The team that owned this pick when the draw was saved.">Pick owner</th><th title="Each ball is one weighted chance in the lottery.">Balls</th><th title="Chance of winning #1 after protections remove ineligible teams.">Chance (first draw)</th></tr>
             </thead>
             <tbody>${oddsRows}</tbody>
           </table>
@@ -1094,7 +1095,7 @@ function renderLotteryHistory() {
   els.historyYearSelect.value = state.selectedHistoryYear;
   els.historyYearSelect.disabled = !years.length;
   els.deleteHistoryYearBtn.disabled = !years.length || state.isRunning;
-  els.exportHistoryBtn.disabled = !years.length;
+  els.exportHistoryBtn.disabled = !Object.keys(state.lotteryHistory).length;
   els.importHistoryBtn.disabled = state.isRunning;
   els.importHistoryInput.disabled = state.isRunning;
 
@@ -2316,10 +2317,10 @@ function closeDialog(dialog) {
 function buildTieBreakBadge(entry) {
   if (entry.tieBreaks?.length) {
     return sanitizeTieBreaks(entry.tieBreaks).map((description) =>
-      `<span class="tie-break-badge" title="${escapeHtml(`Tied with ${description.opponents.join(", ")}; ordering by ${description.reason}`)}">${escapeHtml(description.reason)}</span>`).join(" ");
+      `<span class="tie-break-badge" title="${escapeHtml(`Tied with ${description.opponents.join(", ")}; ordering by ${description.reason} for the original standings slot only, not the lottery draw.`)}">Standings tie-break: ${escapeHtml(description.reason)}</span>`).join(" ");
   }
   if (!entry.tieBreak) return "";
-  return `<span class="tie-break-badge" title="${escapeHtml(`Tied with ${(entry.tieOpponents || []).join(", ")}; ordering by ${entry.tieBreak}`)}">${escapeHtml(entry.tieBreak)}</span>`;
+  return `<span class="tie-break-badge" title="${escapeHtml(`Tied with ${(entry.tieOpponents || []).join(", ")}; ordering by ${entry.tieBreak} for the original standings slot only, not the lottery draw.`)}">Standings tie-break: ${escapeHtml(entry.tieBreak)}</span>`;
 }
 
 function sanitizeTieBreaks(list) {
@@ -2415,7 +2416,7 @@ function openFlagOverride(flag) {
     checkbox.dataset.teamName = team.name;
     els.flagOverrideTeams.appendChild(label);
   });
-  const title = document.getElementById("flagOverrideTitle");
+  const title = document.getElementById("flagOverrideHeading") || document.getElementById("flagOverrideTitle");
   if (title) title.textContent = state.editingProtectionFlag === "previousNumberOne"
     ? `Override previous #1 for ${state.seasonYear}` : `Override previous top three for ${state.seasonYear}`;
   openDialog(els.flagOverrideDialog);
@@ -2476,10 +2477,23 @@ function renderDryRun() {
   if (!els.dryRunPanel) return;
   els.dryRunPanel.hidden = !state.dryRun;
   if (!state.dryRun) return;
+  if (!els.dryRunSnapshotSummary) {
+    els.dryRunSnapshotSummary = document.createElement("div");
+    els.dryRunSnapshotSummary.id = "dryRunSnapshotSummary";
+    els.dryRunSnapshotSummary.className = "audit-summary";
+    els.dryRunPanel.insertBefore(els.dryRunSnapshotSummary, els.dryRunPanel.firstChild);
+  }
+  els.dryRunSnapshotSummary.innerHTML = `
+    <p><strong>Snapshot year:</strong> ${state.dryRun.year} · <strong>Captured:</strong> ${escapeHtml(formatTime(state.dryRun.runAt))}</p>
+    <p><strong>Snapshot rules:</strong> ${escapeHtml(formatRuleSettings(state.dryRun.settings))}</p>
+    <p><strong>Snapshot seed:</strong> ${escapeHtml(state.dryRun.seed || "Not seeded")} · <strong>Teams:</strong> ${state.dryRun.teams.length}</p>
+    <p class="helper-text">Snapshot only: later setup changes do not update this preview.</p>`;
   els.dryRunResults.innerHTML = state.dryRun.finalOrder.map((entry) =>
-    `<article class="result-card"><div class="result-pick">Pick #${entry.pick}</div>
+    `<article class="result-card"><div class="result-pick-row"><div class="result-pick">Pick #${entry.pick}</div>${buildMovementBadge(getOriginalSlot(entry), entry.pick)}</div>
       <div class="result-team">${escapeHtml(entry.team)}</div>
-      <div class="result-owner">${escapeHtml(entry.owner)}</div>${buildTieBreakBadge(entry)}</article>`).join("");
+      <div class="result-owner">${escapeHtml(entry.owner)}</div>
+      ${getOriginalSlot(entry) ? `<div class="result-original" title="Original slot before the lottery (worst record is #1).">Pre-lottery slot: #${getOriginalSlot(entry)}</div>` : ""}
+      ${entry.note ? `<div class="result-note">${escapeHtml(entry.note)}</div>` : ""}${buildTieBreakBadge(entry)}</article>`).join("");
   els.dryRunTrades.innerHTML = buildRequiredTradesMarkup(state.dryRun.trades, "No required trades in this dry run.");
 }
 
@@ -2568,8 +2582,8 @@ function renderMobileTeams() {
           ${team.previousNumberOne ? "checked" : ""} ${locked || protection.automatic || hasProtectionOverride("previousNumberOne") ? "disabled" : ""}></label>
       </div>
       <div class="button-row">
-        <button class="button secondary mobile-up" aria-label="Move ${escapeHtml(team.name)} up" ${isLocked() || !index ? "disabled" : ""}>↑ Up</button>
-        <button class="button secondary mobile-down" aria-label="Move ${escapeHtml(team.name)} down" ${isLocked() || index === state.teams.length - 1 ? "disabled" : ""}>↓ Down</button>
+        <button class="button secondary mobile-team-reorder mobile-up" aria-label="Move ${escapeHtml(team.name)} up" ${isLocked() || !index ? "disabled" : ""}>↑ Up</button>
+        <button class="button secondary mobile-team-reorder mobile-down" aria-label="Move ${escapeHtml(team.name)} down" ${isLocked() || index === state.teams.length - 1 ? "disabled" : ""}>↓ Down</button>
         <button class="button danger mobile-remove" aria-label="Remove ${escapeHtml(team.name)}" ${locked ? "disabled" : ""}>Remove</button>
       </div>`;
     card.querySelector(".mobile-name").addEventListener("change", (event) => {
