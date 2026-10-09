@@ -130,6 +130,11 @@ test("dry run is isolated, exportable, and can be discarded", async ({ page }) =
   await expect(page.locator("#dryRunPanel")).toBeVisible();
   await expect(page.locator("#dryRunPanel")).toContainText("DRY RUN");
   await expect(page.locator("#dryRunResults")).toContainText("#1");
+  await expect(page.locator("#dryRunSnapshotSummary")).toContainText("Snapshot year:");
+  await expect(page.locator("#dryRunSnapshotSummary")).toContainText("Snapshot rules:");
+  await expect(page.locator("#dryRunSnapshotSummary")).toContainText("browser-regression");
+  await expect(page.locator("#dryRunSnapshotSummary")).toContainText("Teams: 8");
+  await expect(page.locator("#dryRunSnapshotSummary")).toContainText("later setup changes do not update this preview");
   expect(await page.evaluate(() => ({ ...localStorage }))).toEqual(before);
   const backup = await download(page, "#exportDryRunBtn");
   expect(JSON.parse(backup.content)._checksum).toMatch(/^[a-f0-9]{64}$/);
@@ -314,7 +319,9 @@ test("tie-break indicators explain imported equal records", async ({ page }, tes
   await page.locator("#importJsonBtn").click();
   const container = testInfo.project.name === "mobile" ? "#mobileTeamList" : "#teamTableBody";
   await expect(page.locator(`${container} .tie-break-badge`)).toHaveCount(2);
+  await expect(page.locator(`${container} .tie-break-badge`).first()).toContainText("Standings tie-break:");
   await expect(page.locator(`${container} .tie-break-badge`).first()).toHaveAttribute("title", /Strength of Schedule/);
+  await expect(page.locator(`${container} .tie-break-badge`).first()).toHaveAttribute("title", /not the lottery draw/);
 });
 
 test("hidden archived history remains exportable and supplies protection", async ({ page }) => {
@@ -337,4 +344,30 @@ test("hidden archived history remains exportable and supplies protection", async
   await expect(page.locator("#teamTableBody .previous-top-three:checked")).toHaveCount(3);
   const backup = await download(page, "#exportHistoryBtn");
   expect(JSON.parse(backup.content).lotteryHistory["2025"].archived).toBe(true);
+  await page.locator("#seasonYearInput").fill("2027");
+  await page.locator("#seasonYearInput").dispatchEvent("change");
+  await expect(page.locator("#flagSourceSummary")).toContainText("Year: 2026");
+  await expect(page.locator("#flagSourceSummary")).not.toContainText("Year: 2025");
+});
+
+test("changing rules clears the previous required trades without replacing team cards", async ({ page }) => {
+  const teams = ["Arizona Cardinals", "Atlanta Falcons"].map((name, index) => ({
+    id: String(index), name, owner: name,
+  }));
+  const payload = {
+    teams,
+    results: [...teams].reverse().map((team, index) => ({
+      ...team, team: team.name, standingIndex: Number(team.id), pick: index + 1,
+    })),
+    settings: { topThreeCooldown: false, noConsecutiveNumberOne: false, bottomFourProtection: false },
+  };
+  await page.locator("#importJsonInput").setInputFiles({
+    name: "live.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(payload)),
+  });
+  await page.locator("#importJsonBtn").click();
+  await expect(page.locator("#requiredTradesList")).toContainText("sends Pick");
+  await page.locator("#lotteryPickCount").fill("6");
+  await page.locator("#lotteryPickCount").dispatchEvent("change");
+  await expect(page.locator("#resultsGrid .result-card")).toHaveCount(0);
+  await expect(page.locator("#requiredTradesList")).not.toContainText("sends Pick");
 });

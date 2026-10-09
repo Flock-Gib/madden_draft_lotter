@@ -518,6 +518,9 @@ test("full-state exports checksum overrides and archive metadata and import them
   assert.equal(b.state.lotteryHistory["2025"].archived, true);
   b.evaluate("renderLotteryHistory()");
   assert.equal(b.node("historyYearSelect").disabled, true);
+  assert.equal(b.node("exportHistoryBtn").disabled, false);
+  await b.evaluate("exportLotteryHistory()");
+  assert.equal(b.context.downloads[0].payload.lotteryHistory["2025"].archived, true);
   b.node("showArchivedToggle").checked = true;
   b.evaluate("renderLotteryHistory()");
   assert.equal(b.node("historyYearSelect").disabled, false);
@@ -739,4 +742,65 @@ test("rule versions list every snapshot with active ID, captured timestamp and c
   a.context.activeId = a.state.ruleHistory[0].id;
   a.evaluate("restoreRuleVersion(activeId)");
   assert.equal(a.state.ruleHistory.length, 4);
+});
+
+test("seed input blur preserves mobile controls and repeated changes do not invalidate a run", () => {
+  const a = app();
+  a.state.seedEnabled = true;
+  a.evaluate("renderMobileTeams()");
+  const card = a.node("mobileTeamList").children[0];
+  a.evaluate("updateSeedText(' mobile-blur ')");
+  assert.equal(a.state.seedText, "mobile-blur");
+  assert.equal(a.node("mobileTeamList").children[0], card);
+  a.state.results = a.evaluate("runLotteryCalculation(() => 0.5)");
+  a.state.lastRunMeta = a.evaluate("buildRunMeta('mobile-blur')");
+  const meta = a.state.lastRunMeta;
+  a.evaluate("updateSeedText('mobile-blur')");
+  assert.equal(a.state.results.length, 8);
+  assert.equal(a.state.lastRunMeta, meta);
+  card.querySelector(".mobile-down").listeners.click();
+  assert.equal(a.state.teams[0].name, "Team 1");
+  assert.equal(a.state.teams[1].name, "Team 0");
+});
+
+test("rule input blur preserves mobile buttons and repeated unchanged settings preserve results", () => {
+  const a = app();
+  a.evaluate("snapshotRuleVersion(); renderMobileTeams()");
+  const card = a.node("mobileTeamList").children[0];
+  a.node("lotteryPickCount").value = "6";
+  a.evaluate("handleSettingsChange()");
+  assert.equal(a.node("mobileTeamList").children[0], card);
+  assert.equal(a.state.ruleHistory[0].settings.lotteryPickCount, 6);
+  a.state.results = a.evaluate("runLotteryCalculation(() => 0.5)");
+  a.evaluate("handleSettingsChange()");
+  assert.equal(a.state.results.length, 8);
+  card.querySelector(".mobile-down").listeners.click();
+  assert.equal(a.state.teams[0].name, "Team 1");
+});
+
+test("season input blur refreshes automatic flags in place and preserves recorded live year", () => {
+  const a = app();
+  a.state.lotteryHistory = history.upsertRecord({}, prior());
+  a.state.seasonYear = 2027;
+  a.state.manualProtectionYear = 2027;
+  a.state.results = a.evaluate("runLotteryCalculation(() => 0.5)");
+  a.state.lastRunMeta = a.evaluate("buildRunMeta('live')");
+  a.evaluate("renderTeams(); renderMobileTeams()");
+  const card = a.node("mobileTeamList").children[0];
+  const row = a.node("teamTableBody").children[0];
+  a.evaluate("updateSeasonYear('2026')");
+  assert.equal(a.state.seasonYear, 2026);
+  assert.equal(a.state.manualProtectionYear, null);
+  assert.equal(a.state.lastRunMeta.year, 2027);
+  assert.equal(a.state.results.length, 8);
+  assert.equal(a.node("mobileTeamList").children[0], card);
+  assert.equal(a.node("teamTableBody").children[0], row);
+  assert.equal(card.querySelector(".previous-number-one").checked, true);
+  assert.equal(card.querySelector(".previous-number-one").disabled, true);
+  assert.equal(row.querySelector(".previous-top-three").checked, true);
+  a.evaluate("updateSeasonYear('invalid'); updateSeasonYear('2026')");
+  assert.equal(a.state.results.length, 8);
+  assert.equal(a.node("seasonYearInput").value, "2026");
+  card.querySelector(".mobile-down").listeners.click();
+  assert.equal(a.state.teams[0].name, "Team 1");
 });

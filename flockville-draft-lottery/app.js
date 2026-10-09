@@ -665,6 +665,7 @@ function renderTeams() {
   const entriesById = new Map(buildLotteryEntries().map((entry) => [entry.id, entry]));
   protection.teams.forEach((team, index) => {
     const row = document.createElement("tr");
+    row.dataset.teamId = team.id;
 
     row.innerHTML = `
       <td>
@@ -2035,12 +2036,22 @@ function handleSettingsChange() {
   if (String(clamped) !== String(els.lotteryPickCount.value)) {
     els.lotteryPickCount.value = String(clamped);
   }
+  if (settingsMatchRuleVersion(getSettingsFromUi(), getActiveRuleVersion())) return;
 
   state.results = [];
   state.lastRunMeta = null;
   els.statusText.textContent = DEFAULT_STATUS;
   snapshotRuleVersion();
-  render();
+  renderResults();
+  renderRequiredTrades();
+  renderLotteryTransparency();
+  renderAuditPanel();
+  renderSteps();
+  renderCurrentRules();
+  renderRuleHistory();
+  renderBracket();
+  renderLockState();
+  persistState();
 }
 
 function resetTradeForm() {
@@ -2567,6 +2578,7 @@ function renderMobileTeams() {
   protection.teams.forEach((team, index) => {
     const card = document.createElement("article");
     card.className = "mobile-team-card";
+    card.dataset.teamId = team.id;
     card.innerHTML = `<div class="mobile-team-heading"><strong>#${index + 1} ${escapeHtml(team.name)}</strong><span>${getBallCount(index)} balls</span></div>
       ${buildTieBreakBadge(entriesById.get(team.id) || {})}
       <div class="mobile-team-fields">
@@ -2703,6 +2715,60 @@ function archiveSelectedHistoryYear() {
   render();
 }
 
+/** Update draw-dependent views without replacing a mobile button receiving the input's blur click. */
+function updateSeedText(value) {
+  if (state.isRunning) return;
+  const seedText = normalizeName(value);
+  if (seedText === state.seedText) return;
+  state.seedText = seedText;
+  els.seedInput.value = seedText;
+  state.results = [];
+  state.lastRunMeta = null;
+  els.statusText.textContent = DEFAULT_STATUS;
+  renderResults();
+  renderRequiredTrades();
+  renderLotteryTransparency();
+  renderAuditPanel();
+  renderSteps();
+  renderBracket();
+  persistState();
+}
+
+/** Refresh season-derived flags in place so a year input blur cannot swallow a card button click. */
+function updateSeasonYear(value) {
+  if (state.isRunning) return;
+  const year = lotteryHistory.sanitizeYear(value);
+  if (year === null) {
+    showToast("Season year must be a 4-digit year.");
+    els.seasonYearInput.value = String(state.seasonYear);
+    return;
+  }
+  if (year === state.seasonYear) return;
+  state.seasonYear = year;
+  state.manualProtectionYear = null;
+  els.seasonYearInput.value = String(year);
+  const protection = getProtection();
+  const byId = new Map(protection.teams.map((team) => [team.id, team]));
+  [els.teamTableBody, els.mobileTeamList].filter(Boolean).forEach((container) => {
+    [...container.children].forEach((row) => {
+      const team = byId.get(row.dataset.teamId);
+      if (!team) return;
+      [[".previous-top-three", "previousTopThree"], [".previous-number-one", "previousNumberOne"]]
+        .forEach(([selector, flag]) => {
+          const checkbox = row.querySelector(selector);
+          if (!checkbox) return;
+          checkbox.checked = Boolean(team[flag]);
+          checkbox.disabled = isLocked() || protection.automatic || hasProtectionOverride(flag);
+        });
+    });
+  });
+  renderProtection();
+  renderFlagAudit();
+  renderLotteryTransparency();
+  renderAuditPanel();
+  persistState();
+}
+
 els.addTeamBtn.addEventListener("click", () => {
   addTeam(els.teamNameInput.value, els.pickOwnerInput.value);
   els.teamNameInput.value = "";
@@ -2803,15 +2869,7 @@ document.getElementById("manualProtectionToggle").addEventListener("change", (ev
   render();
 });
 els.seasonYearInput.addEventListener("change", () => {
-  if (state.isRunning) return;
-  const year = lotteryHistory.sanitizeYear(els.seasonYearInput.value);
-  if (year === null) {
-    showToast("Season year must be a 4-digit year.");
-  } else {
-    if (state.seasonYear !== year) state.manualProtectionYear = null;
-    state.seasonYear = year;
-  }
-  render();
+  updateSeasonYear(els.seasonYearInput.value);
 });
 
 els.setupLockBtn.addEventListener("click", () => {
@@ -2835,11 +2893,7 @@ els.seedEnabledToggle.addEventListener("change", () => {
 });
 
 els.seedInput.addEventListener("change", () => {
-  if (state.isRunning) return;
-  state.seedText = normalizeName(els.seedInput.value);
-  state.results = [];
-  state.lastRunMeta = null;
-  render();
+  updateSeedText(els.seedInput.value);
 });
 
 restoreStateFromStorage();
