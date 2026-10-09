@@ -380,14 +380,15 @@ function sanitizeImportedPayload(payload) {
 
   return {
     teams: payloadTeams,
-    results: sanitizeResults(payload.results, payloadTeams),
+    results: payload.lastRunMeta?.completed === false ? [] : sanitizeResults(payload.results, payloadTeams),
     trades: sanitizeTrades(payload.trades),
     seasonHistory: sanitizeSeasonHistory(payload.seasonHistory),
     ruleHistory: sanitizeRuleHistory(payload.ruleHistory),
     setupLocked: Boolean(payload.setupLocked),
     seedEnabled: Boolean(payload.seedEnabled),
     seedText: normalizeName(payload.seedText),
-    lastRunMeta: payload.lastRunMeta && typeof payload.lastRunMeta === "object" ? payload.lastRunMeta : null,
+    lastRunMeta: payload.lastRunMeta && typeof payload.lastRunMeta === "object" &&
+      payload.lastRunMeta.completed !== false ? payload.lastRunMeta : null,
     seasonYear: lotteryHistory.sanitizeYear(payload.seasonYear) ?? new Date().getFullYear(),
     manualProtectionYear: lotteryHistory.sanitizeYear(payload.manualProtectionYear),
     lotteryHistory: lotteryHistory.extractHistoryFromPayload(payload),
@@ -477,6 +478,9 @@ function restoreStateFromStorage() {
     state.manualProtectionYear = restored.manualProtectionYear;
 
     applySettingsToUi(restored.settings);
+    if (parsed.lastRunMeta?.completed === false) {
+      showToast("The previous draw was interrupted. Partial live results were discarded; saved history is unchanged.");
+    }
   } catch {
     showToast("Saved data was corrupted. Loaded defaults instead.");
   }
@@ -660,8 +664,10 @@ function renderTeams() {
         return;
       }
 
-      team.name = newName;
-      if (team.owner === oldName) team.owner = newName;
+      const liveTeam = state.teams.find((entry) => entry.id === team.id);
+      if (!liveTeam) return;
+      liveTeam.name = newName;
+      if (liveTeam.owner === oldName) liveTeam.owner = newName;
       state.results = [];
       state.lastRunMeta = null;
       render();
@@ -1426,6 +1432,7 @@ function buildRunMeta(seedUsed = "") {
   return {
     timestamp: new Date().toISOString(),
     year: state.seasonYear,
+    completed: false,
     lotteryPickCount: settings.lotteryPickCount,
     toggles: {
       bottomFourProtection: settings.bottomFourProtection,
@@ -1492,6 +1499,7 @@ async function animateLottery(results, runContext) {
 
   els.machineOrb.classList.remove("spinning");
   els.machineText.textContent = "COMPLETE";
+  state.lastRunMeta.completed = true;
   saveLotteryToHistory(results, runContext);
   els.statusText.textContent = `The Flockville Draft Lottery is complete. Results and trades were saved to history for ${runContext.year}.`;
   state.isRunning = false;

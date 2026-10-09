@@ -12,7 +12,12 @@ function app(storage = new Map()) {
   const node = (id) => {
     if (!nodes.has(id)) nodes.set(id, {
       value: "", checked: false, textContent: "", innerHTML: "", files: [],
-      appendChild() {}, focus() {}, classList: { add() {}, remove() {} },
+      children: [], listeners: {},
+      appendChild(child) { this.children.push(child); },
+      insertBefore(child) { this.children.unshift(child); },
+      querySelector(selector) { return node(`${id}:${selector}`); },
+      addEventListener(event, listener) { this.listeners[event] = listener; },
+      focus() {}, classList: { add() {}, remove() {} },
     });
     return nodes.get(id);
   };
@@ -158,6 +163,7 @@ test("history, full-state metadata, manual override, and current results survive
   a.state.manualProtectionYear = 2026;
   a.state.results = a.evaluate("runLotteryCalculation(() => 0.5)");
   a.state.lastRunMeta = a.evaluate("buildRunMeta('audit')");
+  a.state.lastRunMeta.completed = true;
   a.evaluate("persistState(); persistHistory()");
   const b = app(a.storage);
   b.evaluate("restoreStateFromStorage(); restoreHistoryFromStorage()");
@@ -177,6 +183,7 @@ test("finalization uses recorded draw year, not viewed year, and reset keeps his
   a.state.lotteryHistory = history.upsertRecord({}, prior());
   a.state.results = a.evaluate("runLotteryCalculation(() => 0)");
   a.state.lastRunMeta = a.evaluate("buildRunMeta('')");
+  a.state.lastRunMeta.completed = true;
   a.context.runContext = { year: 2026, odds: [], totalBalls: 20 };
   a.evaluate("saveLotteryToHistory(state.results, runContext)");
   a.state.seasonYear = 2029;
@@ -214,4 +221,27 @@ test("inconsistent trade results surface errors in UI and generation instead of 
   assert.match(a.node("requiredTradesList").innerHTML, /Cannot calculate trades/);
   assert.match(a.messages.at(-1), /Cannot generate trades/);
   assert.equal(a.state.trades.length, 0);
+});
+
+test("team dropdown edits live entries rather than history-derived display clones", () => {
+  const a = app();
+  a.state.lotteryHistory = history.upsertRecord({}, prior());
+  a.evaluate("renderTeams()");
+  const select = a.node("teamTableBody").children[0].querySelector(".team-name-edit");
+  select.listeners.change({ target: { value: "Chicago Bears" } });
+  assert.equal(a.state.teams[0].name, "Chicago Bears");
+  assert.equal(a.state.teams[0].owner, "Chicago Bears");
+  assert.equal(a.evaluate("getProtection().teams[0].previousNumberOne"), false);
+});
+
+test("reload cannot present an interrupted animation as a completed lottery", () => {
+  const a = app();
+  a.state.results = a.evaluate("runLotteryCalculation(() => 0)").slice(0, 2);
+  a.state.lastRunMeta = a.evaluate("buildRunMeta('')");
+  a.evaluate("persistState()");
+  const b = app(a.storage);
+  b.evaluate("restoreStateFromStorage()");
+  assert.equal(b.state.results.length, 0);
+  assert.equal(b.state.lastRunMeta, null);
+  assert.equal(b.state.teams.length, 8);
 });

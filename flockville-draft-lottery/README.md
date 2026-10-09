@@ -188,6 +188,7 @@ When a season is finalized, the active rule version ID is stored alongside the s
 
 - The app automatically saves to browser localStorage after meaningful updates.
 - Refreshing the page restores teams, settings, history, lock state, seed config, latest results, and rule history.
+- Results are completed only after the animation finishes. Reloading during a draw discards its partial live results rather than exposing them as a final order; saved past years are unchanged.
 - If saved data is malformed or unsupported, the app safely falls back to defaults.
 
 ### Schema version
