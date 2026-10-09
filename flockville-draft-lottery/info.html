@@ -17,6 +17,7 @@
         <p class="tagline">Quick guide to running a fair draft lottery.</p>
         <div class="button-row hero-actions">
           <a class="button secondary" href="index.html">Back to Draft Lottery App</a>
+          <button id="openGlossaryBtn" class="button secondary" aria-haspopup="dialog" aria-controls="glossaryDialog">Lottery Glossary</button>
         </div>
       </div>
     </header>
@@ -38,6 +39,22 @@
       </ol>
     </section>
 
+    <section class="panel info-content" aria-labelledby="walkthroughHeading">
+      <p class="eyebrow">TEXT WALKTHROUGH</p>
+      <h2 id="walkthroughHeading">From setup to a saved season</h2>
+      <p class="helper-text">Follow these descriptions in the app; no screenshots or video are required. On phones, editable team cards replace the setup table.</p>
+      <ol class="walkthrough-list">
+        <li><strong>Setup:</strong> Add original teams worst-to-best and choose each pick owner. Review <span title="The number of weighted entries a team contributes to the draw.">Balls</span> and the <span title="A team's draft position before the lottery, ordered worst record first.">Pre-lottery slot</span>. Check the selected season and exact prior-year protection source.</li>
+        <li><strong>Rules and sources:</strong> Review Rule Versions and the sources for the two protection flags. Restore an older rule version if needed, or override only Previous #1 or Previous Top 3 for this season. The other flag remains independent.</li>
+        <li><strong>Preview:</strong> Choose <strong>Dry Run</strong> to inspect isolated results and trades marked <strong>DRY RUN — not saved</strong>. Export or discard the preview. To save, enter a new unique season year different from the simulated year and every saved year, then confirm. Existing years are rejected, not replaced.</li>
+        <li><strong>Live draw:</strong> Lock setup and click Start Lottery. Completed results appear as cards; <span title="The team's starting position before the draw; also called the pre-lottery slot.">Original Slot</span> and the <span title="An up/down indicator comparing the final pick to the team's pre-lottery slot.">Movement badge</span> explain how far each entrant moved.</li>
+        <li><strong>Trade implementation:</strong> Read <span title="Ordered swaps between current owners that implement the final lottery order in Madden.">Required trades</span> in order. Generate them into the Trade List Builder, edit as needed, and export CSV or copy a table. <strong>Undo last trade</strong> removes only the newest trade, even from a generated batch; it is disabled after use until another trade is added. It does not undo edits or deletions.</li>
+        <li><strong>Finalize:</strong> Select Finalize Season and review or edit the confirmation dialog's staged swaps. Cancel discards staged edits without changing the live list. Confirm saves the reviewed trades, archives the season, and advances the year; it does not execute Madden trades for you.</li>
+        <li><strong>History and backup:</strong> Inspect <span title="Year-keyed saved lottery records; viewing them does not change live results.">Past Lotteries</span>, archive years to hide them without deleting them, and show archived years when needed. All JSON exports require Web Crypto on HTTPS or localhost for a SHA-256 checksum; unavailable checksum generation reports an explicit error. Recovery requires pasted/file JSON, a preview, and an explicit merge; investigate checksum warnings before accepting data.</li>
+        <li><strong>Playoffs:</strong> Set a field of 2–64 teams and generate a bracket from results. Review byes and export CSV or text. Fields larger than the available results repeat team entries by wrapping the order; these are placeholders to review, not distinct qualifiers. Large brackets wrap or scroll; the bracket is a schedule aid, not a simulated postseason.</li>
+      </ol>
+    </section>
+
     <section class="panel info-content">
       <p class="eyebrow">QUICK START</p>
       <h2>Run it in under a minute</h2>
@@ -56,7 +73,7 @@
       <ul class="faq-list">
         <li><strong>Weighted odds are transparent.</strong> The odds panel shows every team, ball count, and exact chance used by the draw.</li>
         <li><strong>Anti-tanking protections are configurable.</strong> Bottom-four protection, Top-3 cooldown, and no consecutive #1 reduce repeat abuse when enabled.</li>
-        <li><strong>Tie-breaks are deterministic.</strong> Equal records are resolved in order: Strength of Schedule (Madden) → Head-to-Head (if available) → seeded deterministic coin flip.</li>
+        <li><strong title="A rule that resolves equal standings: available Strength of Schedule, head-to-head, then a deterministic seeded fallback.">Tie-breaks are deterministic.</strong> Equal records are resolved in order: Strength of Schedule (Madden) → Head-to-Head (if available) → seeded deterministic coin flip.</li>
         <li><strong>Seeded mode is auditable.</strong> Enable deterministic seed to replay the same setup and verify identical results.</li>
       </ul>
     </section>
@@ -69,7 +86,7 @@
         In the app, results display this as <strong>Owner (via Original Team)</strong>.
       </p>
       <ol class="quick-start-list">
-        <li>Set each team's <strong>Pick Owner</strong> in the main table.</li>
+        <li>Set each team's <strong title="The team currently entitled to receive the original entrant's first-round pick.">Pick Owner</strong> in the main table or mobile card.</li>
         <li>Run the draw as normal.</li>
         <li>If owner differs from team, the result card and announcement include the ownership note automatically.</li>
         <li>Use <strong>Generate Trades from Results</strong> to add every required pick swap to the trade log.</li>
@@ -125,7 +142,9 @@
       <h2>Common questions</h2>
       <ul class="faq-list">
         <li><strong>Why didn't a bottom-four team drop below Pick #8?</strong> Bottom-four protection prevents that when enabled.</li>
-        <li><strong>Why couldn't last year's Top 3 land in the Top 3 again?</strong> Top-3 cooldown blocks repeat Top-3 outcomes when enabled.</li>
+        <li><strong>Why couldn't last year's <span title="Original entrants assigned picks #1, #2, and #3, regardless of pick ownership.">Top-3</span> land in the Top 3 again?</strong> Top-3 <span title="A next-season restriction on original teams that previously finished in the top three.">Cooldown</span> blocks repeat Top-3 outcomes when enabled.</li>
+        <li><strong title="The prior season's original #1 entrant cannot win #1 again while this rule is enabled.">What is No consecutive #1?</strong> A separate rule from Top-3 cooldown; its flag can have its own season-scoped override.</li>
+        <li><strong title="A confirmed, archived live draw with its recorded year and rules, used for season recaps.">What is a Finalized season?</strong> A live draw archived after you review and confirm finalization; saved Past Lotteries already provide next-year protection.</li>
         <li><strong>What does deterministic seed do?</strong> It makes the draw repeatable for audit purposes using the same inputs and seed text.</li>
         <li><strong>What if tie-break data is missing?</strong> The app keeps existing ordering behavior and only applies SoS/H2H when those values are available.</li>
         <li><strong>Do I need a backend?</strong> No. The app runs fully in your browser and saves state locally.</li>
@@ -138,5 +157,31 @@
       <p>No Cheese. Just Ball.</p>
     </footer>
   </main>
+  <dialog id="glossaryDialog" class="app-dialog" aria-labelledby="glossaryHeading">
+    <h2 id="glossaryHeading">Lottery Glossary</h2>
+    <p class="helper-text">Definitions are also available as hover tooltips on key terms. Press Escape or Close to return to the guide.</p>
+    <dl class="glossary-list">
+      <dt>Balls</dt><dd>Weighted entries: the first four teams receive 3 each, the next four 2, and remaining teams 1.</dd>
+      <dt>Original Slot</dt><dd>The original entrant's draft position before the lottery, not the current pick owner's position.</dd>
+      <dt>Pre-lottery slot</dt><dd>The starting draft slot, ordered worst record first; the same starting position as Original Slot.</dd>
+      <dt>Movement badge</dt><dd>Shows whether a final pick moved up, moved down, or stayed at its pre-lottery slot.</dd>
+      <dt>Tie-break</dt><dd>Resolves equal records using available Strength of Schedule and head-to-head data, then a deterministic seeded fallback.</dd>
+      <dt>Cooldown</dt><dd>A restriction preventing last year's original Top-3 entrants from finishing in the Top 3 again when enabled.</dd>
+      <dt>Top-3</dt><dd>The original entrants at picks #1, #2, and #3. Protection follows entrants, not owners.</dd>
+      <dt>No consecutive #1</dt><dd>A separate rule preventing last season's original #1 entrant from winning #1 again.</dd>
+      <dt>Pick owner</dt><dd>The team entitled to receive an entrant's pick, including ownership acquired by trade.</dd>
+      <dt>Required trades</dt><dd>Ordered pick swaps between current owners that implement the final draft order; execute them in the listed order in Madden.</dd>
+      <dt>Finalized season</dt><dd>A live draw explicitly confirmed and archived for recaps, with its recorded year and rule version.</dd>
+      <dt>Past Lotteries</dt><dd>Browser-local records indexed by actual season year. They supply next-season protection without needing finalization.</dd>
+    </dl>
+    <form method="dialog" class="button-row draw-actions">
+      <button class="button secondary" autofocus>Close Glossary</button>
+    </form>
+  </dialog>
+  <script>
+    document.getElementById("openGlossaryBtn").addEventListener("click", () => {
+      document.getElementById("glossaryDialog").showModal();
+    });
+  </script>
 </body>
 </html>

@@ -137,8 +137,45 @@
     return [...entries].sort((a, b) => compareLotteryEntries(a, b, context));
   }
 
+  /**
+   * Explain each actual record tie using the comparator's existing precedence.
+   * A team can have several entries when different opponents require different rules.
+   * Missing fallback metrics are not described as tied records.
+   */
+  function describeTieBreaks(entries, context = {}) {
+    if (!Array.isArray(entries)) return [];
+    const descriptions = [];
+    entries.forEach((entry, index) => {
+      const metric = getRecordMetric(entry);
+      if (metric.source === "fallback") return;
+      const reasons = new Map();
+      entries.forEach((opponent, otherIndex) => {
+        if (index === otherIndex) return;
+        const other = getRecordMetric(opponent);
+        if (metric.source !== other.source || metric.value !== other.value) return;
+        const sos = toFiniteNumber(entry?.sos);
+        const otherSos = toFiniteNumber(opponent?.sos);
+        const reason = sos !== null && otherSos !== null && sos !== otherSos
+          ? "Strength of Schedule"
+          : getContextHeadToHeadEdge(entry, opponent, context.headToHead) !== 0 ||
+            getDirectHeadToHeadEdge(entry, opponent) !== 0
+            ? "Head-to-head" : "Coin flip";
+        if (!reasons.has(reason)) reasons.set(reason, []);
+        reasons.get(reason).push(normalizeName(opponent?.name) || getEntryKey(opponent));
+      });
+      reasons.forEach((opponents, reason) => descriptions.push({
+        id: normalizeName(entry?.id),
+        name: normalizeName(entry?.name) || getEntryKey(entry),
+        reason,
+        opponents,
+      }));
+    });
+    return descriptions;
+  }
+
   return {
     compareLotteryEntries,
+    describeTieBreaks,
     deterministicCoinFlip,
     orderLotteryEntries,
   };

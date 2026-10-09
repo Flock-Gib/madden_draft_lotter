@@ -360,3 +360,98 @@ test("deleting prior year switches protection back to the original checkbox flag
   assert.equal(result.automatic, false);
   assert.deepEqual(result.teams, teams);
 });
+
+test("archive and finalization flags are additive booleans and survive history exports", () => {
+  for (const archived of [true, false]) {
+    for (const finalized of [true, false]) {
+      const safe = history.sanitizeRecord(record(2025, { archived, finalized }));
+      assert.equal(safe.archived, archived);
+      assert.equal(safe.finalized, finalized);
+      assert.deepEqual(history.extractHistoryFromPayload(JSON.parse(JSON.stringify(
+        history.buildHistoryExport({ 2025: safe })
+      ))), { 2025: safe });
+    }
+  }
+  const legacy = history.sanitizeRecord(record(2025));
+  assert.equal(Object.hasOwn(legacy, "archived"), false);
+  assert.equal(Object.hasOwn(legacy, "finalized"), false);
+  const invalid = history.sanitizeRecord(record(2025, { archived: "false", finalized: 1 }));
+  assert.equal(Object.hasOwn(invalid, "archived"), false);
+  assert.equal(Object.hasOwn(invalid, "finalized"), false);
+});
+
+test("saved dry-run records preserve their simulation source through sanitization, upserts and exports", () => {
+  const simulated = record(2026, { source: "dry-run", archived: false, finalized: false });
+  const sanitized = history.sanitizeRecord(simulated);
+  assert.equal(sanitized.source, "dry-run");
+  const stored = history.upsertRecord({}, simulated);
+  assert.equal(stored["2026"].source, "dry-run");
+  assert.deepEqual(history.sanitizeHistory(stored), stored);
+  const imported = history.extractHistoryFromPayload(JSON.parse(JSON.stringify(history.buildHistoryExport(stored))));
+  assert.deepEqual(imported, stored);
+  assert.equal(imported["2026"].source, "dry-run");
+});
+
+test("optional dry-run team snapshots are sanitized, detached and preserved through save and export", () => {
+  const teams = [
+    { id: " A ", name: " Bears ", owner: " Jets ", previousTopThree: true, previousNumberOne: false,
+      winPct: "0.25", sos: 0.5, headToHead: { Jets: { wins: 1, losses: 2, extra: { ignored: true } }, Bills: -1 },
+      unexpected: "drop" },
+    { name: "Jets", headToHead: JSON.parse('{"__proto__":{"wins":1},"Bears":{"aWins":"2","bWins":0},"bad":true}') },
+    { name: {} }, null,
+  ];
+  const simulated = record(2026, { source: "dry-run", teams });
+  const stored = history.upsertRecord({}, simulated);
+  const snapshot = stored["2026"].teams;
+  assert.deepEqual(snapshot[0], {
+    id: "A", name: "Bears", owner: "Jets", previousTopThree: true, previousNumberOne: false,
+    winPct: 0.25, sos: 0.5, headToHead: { Jets: { wins: 1, losses: 2 }, Bills: -1 },
+  });
+  assert.deepEqual(snapshot[1].headToHead, { Bears: { aWins: 2, bWins: 0 } });
+  assert.equal(snapshot.length, 2);
+  assert.equal(snapshot[1].owner, "Jets");
+  assert.notEqual(snapshot[0].headToHead.Jets, teams[0].headToHead.Jets);
+  teams[0].name = "Changed live team";
+  teams[0].owner = "Changed live owner";
+  teams[0].headToHead.Jets.wins = 99;
+  assert.equal(snapshot[0].name, "Bears");
+  assert.equal(snapshot[0].owner, "Jets");
+  assert.equal(snapshot[0].headToHead.Jets.wins, 1);
+  assert.deepEqual(history.extractHistoryFromPayload(JSON.parse(JSON.stringify(history.buildHistoryExport(stored)))), stored);
+  assert.equal(Object.hasOwn(history.sanitizeRecord(record(2026)), "teams"), false);
+});
+
+test("reviewed manual and auto trades retain app metadata through sanitization and manual edits", () => {
+  const reviewedTrades = [
+    { id: "manual-id", fromTeam: " Bears ", toTeam: " Jets ", assets: ["Player A", "2028 first-round pick"],
+      notes: " Commissioner approved ", createdAt: savedAt, source: "manual", ignored: "not persisted" },
+    { id: "auto-id", fromTeam: "Jets", toTeam: "Bears", assets: ["Jets sends Pick #2", "Bears sends Pick #1"],
+      notes: "Auto-generated", createdAt: savedAt, source: "auto" },
+    { from: "Bears", to: "Jets", assets: "Player B\nPlayer C", notes: "Legacy aliases" },
+    null, { fromTeam: "Bears", toTeam: "Jets" }, { fromTeam: {}, toTeam: "Jets", notes: "Bad team" },
+  ];
+  const existing = history.sanitizeRecord(record(2025, {
+    finalOrder: manualInput().finalOrder, reviewedTrades, archived: true, finalized: false,
+  }));
+  assert.equal(existing.reviewedTrades.length, 3);
+  assert.deepEqual(existing.reviewedTrades[0], {
+    id: "manual-id", fromTeam: "Bears", toTeam: "Jets", assets: ["Player A", "2028 first-round pick"],
+    notes: "Commissioner approved", createdAt: savedAt, source: "manual",
+  });
+  assert.deepEqual(existing.reviewedTrades[2].assets, ["Player B", "Player C"]);
+  assert.equal(existing.reviewedTrades[2].id, "");
+  assert.equal(Object.hasOwn(history.sanitizeRecord(record(2025)), "reviewedTrades"), false);
+  const snapshot = JSON.stringify(existing);
+  for (const input of [manualInput(), manualInput({
+    finalOrder: manualInput().finalOrder.map((entry) => ({ ...entry, owner: "Bills" })),
+  })]) {
+    const result = createManual(input, existing);
+    assert.deepEqual(result.reviewedTrades, existing.reviewedTrades);
+    assert.equal(result.archived, true);
+    assert.equal(result.finalized, false);
+    assert.notEqual(result.reviewedTrades[0].assets, existing.reviewedTrades[0].assets);
+    const h = { 2025: result };
+    assert.deepEqual(history.extractHistoryFromPayload(JSON.parse(JSON.stringify(history.buildHistoryExport(h)))), h);
+  }
+  assert.equal(JSON.stringify(existing), snapshot);
+});

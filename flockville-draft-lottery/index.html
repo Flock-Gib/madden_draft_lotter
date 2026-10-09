@@ -72,10 +72,10 @@
       </div>
       <p class="helper-text">Pick owners can be any current NFL team, even if not in the lottery list.</p>
       <p id="protectionSource" class="helper-text" aria-live="polite"></p>
-      <label><input id="manualProtectionToggle" type="checkbox" /> Use manual protection checkboxes for this season (override history)</label>
+      <label class="check-label"><input id="manualProtectionToggle" type="checkbox" /> Use manual protection checkboxes for this season (override history)</label>
       <p class="helper-text">Protections follow the original lottery team, not its pick owner. Without the exact previous year, review the warning and explicitly enable manual flags before drawing.</p>
 
-      <div class="table-wrap">
+      <div class="table-wrap setup-table">
         <table>
           <thead>
             <tr>
@@ -91,6 +91,7 @@
           <tbody id="teamTableBody"></tbody>
         </table>
       </div>
+      <div id="mobileTeamList" class="mobile-team-list" aria-label="Lottery team setup"></div>
     </section>
 
     <section class="panel settings-grid">
@@ -169,6 +170,7 @@
             <input id="seasonYearInput" type="number" min="1000" max="9999" step="1" inputmode="numeric" />
           </label>
           <button id="startLotteryBtn" class="button glow">Start Lottery</button>
+          <button id="dryRunBtn" class="button secondary" title="Preview a draw without saving live results, history, or trades.">Dry Run</button>
         </div>
       </div>
 
@@ -177,6 +179,28 @@
           <div id="machineText" class="machine-text">READY</div>
         </div>
         <p id="statusText" class="status-text" aria-live="polite">Add teams, confirm the settings, and start the draw.</p>
+      </div>
+    </section>
+
+    <section id="dryRunPanel" class="panel dry-run-panel" aria-labelledby="dryRunHeading" hidden>
+      <p class="eyebrow">PREVIEW ONLY</p>
+      <h2 id="dryRunHeading">Dry Run</h2>
+      <p class="helper-text">This preview is isolated from live results, history, and the trade list. To save, choose a new unique season year different from the simulated year and every saved year, then confirm. Otherwise export or discard it.</p>
+      <p class="dry-run-watermark">DRY RUN — not saved</p>
+      <div id="dryRunResults" class="results-grid" aria-live="polite"></div>
+      <h3 class="subheading">Preview trades</h3>
+      <p class="dry-run-watermark">DRY RUN — not saved</p>
+      <div id="dryRunTrades" class="required-trades"></div>
+      <div class="history-toolbar">
+        <label class="year-field">
+          <span>Save preview to a new unique season year</span>
+          <input id="dryRunYearInput" type="number" min="1000" max="9999" step="1" inputmode="numeric" />
+        </label>
+        <div class="button-row">
+          <button id="saveDryRunBtn" class="button primary">Save Dry Run</button>
+          <button id="discardDryRunBtn" class="button secondary">Discard Preview</button>
+          <button id="exportDryRunBtn" class="button secondary">Export Dry Run</button>
+        </div>
       </div>
     </section>
 
@@ -189,7 +213,7 @@
       <div id="resultsGrid" class="results-grid" aria-live="polite"></div>
 
       <div class="required-trades">
-        <h3 class="subheading">Trades required to match the lottery order</h3>
+        <h3 class="subheading" title="Ordered swaps between current pick owners that implement the lottery's final order.">Trades required to match the lottery order</h3>
         <p class="helper-text">Before the lottery, Pick #N sits with whoever owns the Nth-worst team's pick. Execute these swaps in the listed order between current owners. With duplicate owners, global minimum trade count is not guaranteed.</p>
         <div id="requiredTradesList"></div>
       </div>
@@ -198,6 +222,26 @@
         <button id="finalizeSeasonBtn" class="button secondary" disabled title="Archive this season, set cooldown flags for next year, and advance the season year.">Finalize Season</button>
         <button id="generateTradesBtn" class="button secondary" disabled title="Add every required pick swap to the Trade List Builder below.">Generate Trades from Results</button>
         <button id="copyLotteryAnnouncementBtn" class="button secondary" disabled>Copy Lottery Announcement</button>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="bracketHeading">
+      <p class="eyebrow">PLAYOFFS</p>
+      <h2 id="bracketHeading">Playoff Bracket</h2>
+      <p class="helper-text">Generate a seeded bracket from the available results. Non-power-of-two fields use byes. If the field exceeds the available results, team entries repeat by wrapping the order; review these placeholders before use. Large brackets wrap or scroll on narrow screens. This is a planning tool, not a game simulator.</p>
+      <div class="draw-start">
+        <label class="year-field">
+          <span>Playoff teams (2–64)</span>
+          <input id="playoffTeamCount" type="number" min="2" max="64" step="1" value="8" inputmode="numeric" />
+        </label>
+        <button id="generateBracketBtn" class="button secondary">Generate Bracket</button>
+      </div>
+      <div id="bracketPanel" class="bracket-panel" hidden>
+        <div id="bracketResults" class="bracket-results" aria-live="polite"></div>
+        <div class="button-row">
+          <button id="exportBracketCsvBtn" class="button secondary">Export Bracket CSV</button>
+          <button id="exportBracketTextBtn" class="button secondary">Export Bracket Text</button>
+        </div>
       </div>
     </section>
 
@@ -216,11 +260,14 @@
         </label>
         <div class="button-row">
           <button id="deleteHistoryYearBtn" class="button danger" disabled>Delete This Year</button>
+          <button id="archiveHistoryYearBtn" class="button secondary" disabled>Archive This Year</button>
           <button id="exportHistoryBtn" class="button secondary" disabled>Export History</button>
           <input id="importHistoryInput" type="file" accept=".json,application/json" aria-label="History JSON file" />
           <button id="importHistoryBtn" class="button secondary">Import History</button>
         </div>
       </div>
+      <label class="check-label"><input id="showArchivedToggle" class="inline-check" type="checkbox" /> Show archived years</label>
+      <p class="helper-text">Archiving hides a year from the default view without deleting it or removing its protection data. Show archived years to view or restore it.</p>
       <div id="historyDetail" class="history-detail"></div>
       <div class="button-row">
         <button id="newHistoryBtn" class="button secondary">Enter a Past Draft</button>
@@ -288,13 +335,23 @@
       <div id="currentRulesPanel" class="audit-summary">
         <p class="helper-text">No rules captured yet.</p>
       </div>
+      <div id="flagSourcePanel" class="flag-source-panel" aria-labelledby="flagSourceHeading">
+        <h3 id="flagSourceHeading" class="subheading">Protection Flag Sources</h3>
+        <div id="flagSourceSummary" class="audit-summary" aria-live="polite"></div>
+        <p class="helper-text">Review each flag's source separately. An override applies to this season only and follows original teams, never pick owners.</p>
+        <div class="button-row">
+          <button id="overrideNumberOneBtn" class="button secondary">Override Previous #1</button>
+          <button id="overrideTopThreeBtn" class="button secondary">Override Previous Top 3</button>
+          <button id="clearProtectionOverrideBtn" class="button secondary">Clear Protection Overrides</button>
+        </div>
+      </div>
     </section>
 
     <section class="panel">
       <div>
         <p class="eyebrow">RULE HISTORY</p>
-        <h2>Rule Changelog</h2>
-        <p class="helper-text">Prior rule versions in reverse chronological order. Each season's draw is linked to the rules that were active at finalization.</p>
+        <h2>Rule Versions</h2>
+        <p class="helper-text">All rule versions, including the active version, in reverse chronological order. Restore a version to create a new active snapshot; old versions and historical draws remain unchanged.</p>
       </div>
       <div id="ruleHistoryList" class="season-history-list">
         <p class="helper-text">No prior rule versions.</p>
@@ -319,11 +376,16 @@
           <option value="">To team</option>
         </select>
       </div>
-      <textarea id="tradeAssetsInput" rows="4" placeholder="Moved assets (one per line, e.g. 2027 Round 1 Pick)"></textarea>
-      <input id="tradeNotesInput" type="text" maxlength="120" placeholder="Optional notes (players, conditions, cash, etc.)" />
+      <label for="tradeAssetsInput">Moved assets (one per line)</label>
+      <textarea id="tradeAssetsInput" rows="4" placeholder="e.g. 2027 Round 1 Pick"></textarea>
+      <label for="tradeNotesInput">Optional trade notes</label>
+      <input id="tradeNotesInput" type="text" maxlength="120" placeholder="Players, conditions, cash, etc." />
       <div class="button-row">
         <button id="saveTradeBtn" class="button primary">Add Trade</button>
         <button id="cancelTradeEditBtn" class="button secondary" hidden>Cancel Edit</button>
+        <button id="undoTradeBtn" class="button secondary" disabled title="Remove only the newest trade, even after batch generation. Available once until another trade is added; edits and deletions are not undone.">Undo last trade</button>
+        <button id="exportTradesCsvBtn" class="button secondary" disabled>Export Trades CSV</button>
+        <button id="exportTradesTableBtn" class="button secondary" disabled>Copy Trades Table</button>
       </div>
 
       <div id="tradeList" class="trade-list">
@@ -335,7 +397,7 @@
       <div>
         <p class="eyebrow">SHARE</p>
         <h2>Export Results</h2>
-        <p class="helper-text">Copy the finished draft order, export JSON, or import a previous state backup.</p>
+        <p class="helper-text">Copy the finished draft order, export JSON, or import a previous state backup. JSON exports require Web Crypto on HTTPS or localhost to generate a SHA-256 checksum; unavailable checksum generation reports an error rather than exporting unchecked data.</p>
       </div>
       <div class="button-row">
         <input id="importJsonInput" type="file" accept=".json,application/json" />
@@ -344,6 +406,21 @@
         <button id="copySeasonHistoryDiscordBtn" class="button secondary" disabled>Copy All Season History</button>
         <button id="downloadJsonBtn" class="button secondary" disabled>Download JSON</button>
       </div>
+    </section>
+
+    <section class="panel" aria-labelledby="recoveryHeading">
+      <p class="eyebrow">RECOVERY</p>
+      <h2 id="recoveryHeading">Recover Saved History</h2>
+      <p class="helper-text">Paste a supported history JSON backup or select a file, then preview before merging. Recovery is explicit: it never guesses missing results or silently replaces live setup. Check any checksum warning and conflicting years before confirming.</p>
+      <label for="recoveryText">History JSON to recover</label>
+      <textarea id="recoveryText" rows="6" placeholder="Paste history JSON here" spellcheck="false"></textarea>
+      <label for="recoveryFileInput">Or choose a recovery JSON file</label>
+      <input id="recoveryFileInput" type="file" accept=".json,application/json" />
+      <div class="button-row draw-actions">
+        <button id="previewRecoveryBtn" class="button secondary">Preview Recovery</button>
+        <button id="mergeRecoveryBtn" class="button primary" disabled>Merge Recovery</button>
+      </div>
+      <div id="recoveryPreview" class="recovery-preview" role="status" aria-live="polite"></div>
     </section>
 
     <section id="how-it-works" class="panel info-content">
@@ -362,8 +439,8 @@
           <h3 class="subheading">How the draw works</h3>
           <p class="helper-text">Picks #1 through #8 (configurable) are drawn one at a time. A drawn team is removed. Teams not drawn fill the remaining picks in reverse record order.</p>
           <ul>
-            <li><strong>Top-3 cooldown:</strong> last year's Top 3 can't land in the Top 3.</li>
-            <li><strong>No consecutive #1:</strong> last year's #1 can't win #1 again.</li>
+            <li><strong title="Top-3 means the original entrants finishing at picks #1, #2, and #3; cooldown prevents repeating that outcome next season.">Top-3 cooldown:</strong> last year's Top 3 can't land in the Top 3.</li>
+            <li><strong title="The original team at last season's #1 pick cannot win #1 again while this rule is enabled.">No consecutive #1:</strong> last year's #1 can't win #1 again.</li>
             <li><strong>Bottom-four protection:</strong> the four worst teams can't fall below Pick #8.</li>
           </ul>
         </article>
@@ -382,9 +459,30 @@
     </footer>
   </main>
 
+  <dialog id="finalizeDialog" class="app-dialog" aria-labelledby="finalizeDialogHeading" aria-describedby="finalizeDialogDescription">
+    <h2 id="finalizeDialogHeading">Confirm Finalization</h2>
+    <p id="finalizeDialogDescription" class="helper-text">Review and edit the staged trades before archiving this season and advancing the year. Confirm saves the reviewed trade list; it does not execute trades in Madden. Cancel discards staged edits and returns without finalizing.</p>
+    <div id="finalizeTradeList" class="required-trades"></div>
+    <div class="button-row draw-actions">
+      <button id="confirmFinalizeBtn" class="button primary">Confirm Finalization</button>
+      <button id="cancelFinalizeBtn" class="button secondary" autofocus>Cancel</button>
+    </div>
+  </dialog>
+
+  <dialog id="flagOverrideDialog" class="app-dialog" aria-labelledby="flagOverrideHeading" aria-describedby="flagOverrideDescription">
+    <h2 id="flagOverrideHeading"><span id="flagOverrideTitle">Override Protection Flags</span></h2>
+    <p id="flagOverrideDescription" class="helper-text">Manual overrides disable auto-sync for this flag only. Choose original lottery teams for the selected flag; the other flag's source is unchanged. Saving applies to this season; cancel makes no change. Clear the override to resume history-based sourcing.</p>
+    <div id="flagOverrideTeams" class="flag-override-teams"></div>
+    <div class="button-row draw-actions">
+      <button id="saveFlagOverrideBtn" class="button primary">Save Flag Override</button>
+      <button id="cancelFlagOverrideBtn" class="button secondary" autofocus>Cancel</button>
+    </div>
+  </dialog>
+
   <script src="lottery-order.js"></script>
   <script src="lottery-trades.js"></script>
   <script src="lottery-history.js"></script>
+  <script src="lottery-tools.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

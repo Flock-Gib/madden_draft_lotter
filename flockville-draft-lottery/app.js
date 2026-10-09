@@ -63,6 +63,13 @@ const state = {
   importedSeasonCandidates: [],
   isRunning: false,
   editingTradeId: "",
+  undoTradeIds: [],
+  protectionOverrides: null,
+  editingProtectionFlag: "",
+  dryRun: null,
+  bracket: null,
+  recoveryCandidate: null,
+  finalizeDraft: null,
 };
 
 const els = {
@@ -120,6 +127,21 @@ const els = {
 const lotteryOrder = globalThis.lotteryOrder || {};
 const lotteryTrades = globalThis.lotteryTrades;
 const lotteryHistory = globalThis.lotteryHistory;
+const lotteryTools = globalThis.lotteryTools;
+let checksumWarning = "";
+[
+  "undoTradeBtn", "exportTradesCsvBtn", "exportTradesTableBtn", "finalizeDialog",
+  "finalizeTradeList", "confirmFinalizeBtn", "cancelFinalizeBtn", "dryRunBtn",
+  "dryRunPanel", "dryRunResults", "dryRunTrades", "dryRunYearInput", "saveDryRunBtn",
+  "discardDryRunBtn", "exportDryRunBtn", "generateBracketBtn", "playoffTeamCount",
+  "dryRunSnapshotSummary",
+  "bracketPanel", "exportBracketCsvBtn", "exportBracketTextBtn", "flagSourcePanel",
+  "bracketResults", "flagSourceSummary",
+  "overrideNumberOneBtn", "overrideTopThreeBtn", "clearProtectionOverrideBtn",
+  "flagOverrideDialog", "flagOverrideTeams", "saveFlagOverrideBtn", "cancelFlagOverrideBtn",
+  "mobileTeamList", "showArchivedToggle", "archiveHistoryYearBtn", "recoveryText",
+  "recoveryFileInput", "previewRecoveryBtn", "recoveryPreview", "mergeRecoveryBtn",
+].forEach((id) => { els[id] = document.getElementById(id); });
 
 // Populate the "Add team" dropdown once from the canonical NFL_TEAMS list
 NFL_TEAMS.forEach((name) => {
@@ -217,6 +239,9 @@ function sanitizeResults(results, teams) {
         previousNumberOne: Boolean(result.previousNumberOne),
         pick: safePick,
         note: normalizeName(result.note),
+        tieBreak: normalizeName(result.tieBreak),
+        tieOpponents: Array.isArray(result.tieOpponents) ? result.tieOpponents.map(normalizeName).filter(Boolean) : [],
+        tieBreaks: sanitizeTieBreaks(result.tieBreaks),
       };
     })
     .filter(Boolean)
@@ -254,6 +279,7 @@ function sanitizeSeasonHistory(list) {
         seed: normalizeName(entry.seed),
         ruleVersionId: normalizeName(entry.ruleVersionId),
         runMeta: (entry.runMeta && typeof entry.runMeta === "object") ? entry.runMeta : null,
+        reviewedTrades: sanitizeTrades(entry.reviewedTrades),
       };
     });
 }
@@ -294,10 +320,10 @@ function settingsMatchRuleVersion(settings, version) {
   );
 }
 
-function snapshotRuleVersion(notes = "") {
+function snapshotRuleVersion(notes = "", force = false) {
   const settings = getSettingsFromUi();
   const active = getActiveRuleVersion();
-  if (settingsMatchRuleVersion(settings, active)) return;
+  if (!force && settingsMatchRuleVersion(settings, active)) return;
   state.ruleHistory.unshift({
     id: createId(),
     effectiveAt: new Date().toISOString(),
@@ -391,6 +417,7 @@ function sanitizeImportedPayload(payload) {
       payload.lastRunMeta.completed !== false ? payload.lastRunMeta : null,
     seasonYear: lotteryHistory.sanitizeYear(payload.seasonYear) ?? new Date().getFullYear(),
     manualProtectionYear: lotteryHistory.sanitizeYear(payload.manualProtectionYear),
+    protectionOverrides: sanitizeProtectionOverrides(payload.protectionOverrides),
     lotteryHistory: lotteryHistory.extractHistoryFromPayload(payload),
     settings,
   };
@@ -413,6 +440,7 @@ function persistState() {
       lastRunMeta: state.lastRunMeta,
       seasonYear: state.seasonYear,
       manualProtectionYear: state.manualProtectionYear,
+      protectionOverrides: state.protectionOverrides,
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   } catch {
@@ -476,6 +504,7 @@ function restoreStateFromStorage() {
     state.lastRunMeta = restored.lastRunMeta;
     state.seasonYear = restored.seasonYear;
     state.manualProtectionYear = restored.manualProtectionYear;
+    state.protectionOverrides = restored.protectionOverrides;
 
     applySettingsToUi(restored.settings);
     if (parsed.lastRunMeta?.completed === false) {
@@ -562,6 +591,27 @@ function updateTeam(id, field, value) {
   render();
 }
 
+function renameTeam(id, value) {
+  if (isLocked()) {
+    showToast("Unlock setup before editing teams.");
+    return false;
+  }
+  const team = state.teams.find((entry) => entry.id === id);
+  if (!team) return false;
+  const newName = normalizeName(value) || team.name;
+  if (state.teams.some((entry) => entry.id !== id && entry.name.toLowerCase() === newName.toLowerCase())) {
+    showToast("That team name already exists.");
+    return false;
+  }
+  const oldName = team.name;
+  team.name = newName;
+  if (team.owner === oldName) team.owner = newName;
+  state.results = [];
+  state.lastRunMeta = null;
+  render();
+  return true;
+}
+
 function renderOwnerOptions() {
   const currentValue = els.pickOwnerInput.value;
   const currentTradeFromValue = els.tradeFromInput.value;
@@ -612,8 +662,10 @@ function renderTeams() {
   const locked = isLocked();
 
   const protection = getProtection();
+  const entriesById = new Map(buildLotteryEntries().map((entry) => [entry.id, entry]));
   protection.teams.forEach((team, index) => {
     const row = document.createElement("tr");
+    row.dataset.teamId = team.id;
 
     row.innerHTML = `
       <td>
@@ -621,11 +673,11 @@ function renderTeams() {
         <strong>${index + 1}</strong>
         <button class="remove-btn move-down" title="Move down" ${locked ? "disabled" : ""}>↓</button>
       </td>
-      <td><select class="team-name-edit" ${locked ? "disabled" : ""}></select></td>
+      <td><select class="team-name-edit" ${locked ? "disabled" : ""}></select>${buildTieBreakBadge(entriesById.get(team.id) || {})}</td>
       <td><input class="owner-edit" value="${escapeHtml(team.owner)}" ${locked ? "disabled" : ""} /></td>
       <td><strong>${getBallCount(index)}</strong></td>
-      <td><input aria-label="${escapeHtml(team.name)} previous top three" class="inline-check previous-top-three" type="checkbox" ${team.previousTopThree ? "checked" : ""} ${locked || protection.automatic ? "disabled" : ""} /></td>
-      <td><input aria-label="${escapeHtml(team.name)} previous number one" class="inline-check previous-number-one" type="checkbox" ${team.previousNumberOne ? "checked" : ""} ${locked || protection.automatic ? "disabled" : ""} /></td>
+      <td><input aria-label="${escapeHtml(team.name)} previous top three" class="inline-check previous-top-three" type="checkbox" ${team.previousTopThree ? "checked" : ""} ${locked || protection.automatic || hasProtectionOverride("previousTopThree") ? "disabled" : ""} /></td>
+      <td><input aria-label="${escapeHtml(team.name)} previous number one" class="inline-check previous-number-one" type="checkbox" ${team.previousNumberOne ? "checked" : ""} ${locked || protection.automatic || hasProtectionOverride("previousNumberOne") ? "disabled" : ""} /></td>
       <td><button class="remove-btn remove-team" ${locked ? "disabled" : ""}>Remove</button></td>
     `;
 
@@ -650,27 +702,7 @@ function renderTeams() {
     row.querySelector(".remove-team").addEventListener("click", () => removeTeam(team.id));
 
     row.querySelector(".team-name-edit").addEventListener("change", (event) => {
-      const oldName = team.name;
-      const attemptedName = normalizeName(event.target.value);
-      const newName = attemptedName || oldName;
-
-      const duplicateExists = state.teams.some(
-        (entry) => entry.id !== team.id && entry.name.toLowerCase() === newName.toLowerCase()
-      );
-
-      if (duplicateExists) {
-        showToast("That team name already exists.");
-        event.target.value = oldName;
-        return;
-      }
-
-      const liveTeam = state.teams.find((entry) => entry.id === team.id);
-      if (!liveTeam) return;
-      liveTeam.name = newName;
-      if (liveTeam.owner === oldName) liveTeam.owner = newName;
-      state.results = [];
-      state.lastRunMeta = null;
-      render();
+      if (!renameTeam(team.id, event.target.value)) event.target.value = team.name;
     });
 
     row.querySelector(".owner-edit").addEventListener("change", (event) => {
@@ -730,6 +762,7 @@ function renderResults() {
       <div class="result-owner">${escapeHtml(ownerText)}</div>
       ${originalSlot ? `<div class="result-original" title="Where this team's pick sat in the draft order before the lottery (worst record = #1).">Pre-lottery slot: #${originalSlot}</div>` : ""}
       ${result.note ? `<div class="result-note">${escapeHtml(result.note)}</div>` : ""}
+      ${buildTieBreakBadge(result)}
     `;
 
     els.resultsGrid.appendChild(card);
@@ -820,6 +853,7 @@ function buildLotteryTransparencyData() {
       owner: entry.owner,
       balls: entry.balls,
       percent: chance * 100,
+      tieBreaks: entry.tieBreaks,
     });
     existing.balls += entry.balls;
     existing.percent += chance * 100;
@@ -852,7 +886,7 @@ function renderLotteryTransparency() {
       (entry) => `
         <tr>
           <td>#${entry.slot}</td>
-          <td>${escapeHtml(entry.team)}</td>
+          <td>${escapeHtml(entry.team)} ${buildTieBreakBadge(entry)}</td>
           <td>${entry.owner && entry.owner !== entry.team ? escapeHtml(entry.owner) : '<span class="muted-text">Same team</span>'}</td>
           <td>${entry.balls}</td>
           <td>
@@ -916,6 +950,7 @@ function renderAuditPanel() {
     ["Team count", String(state.teams.length)],
     ["Total balls", String(totalBalls)],
   ];
+  if (checksumWarning) rows.push(["Import integrity warning", checksumWarning]);
 
   els.auditSummary.innerHTML = rows
     .map(([label, value]) => `<div class="audit-row"><strong>${escapeHtml(label)}:</strong> <span>${escapeHtml(value)}</span></div>`)
@@ -984,7 +1019,7 @@ function buildHistoryDetailMarkup(record) {
           <td><strong>#${pick.pick}</strong></td>
           <td>${escapeHtml(pick.team)}</td>
           <td>${pick.owner && pick.owner !== pick.team ? escapeHtml(pick.owner) : '<span class="muted-text">Same team</span>'}</td>
-          <td>${pick.originalSlot ? `#${pick.originalSlot}` : "—"}</td>
+          <td title="Original slot in the pre-lottery draft order (worst record is #1).">${pick.originalSlot ? `#${pick.originalSlot}` : "—"}</td>
           <td>${buildMovementBadge(pick.originalSlot, pick.pick) || "—"}</td>
         </tr>
       `
@@ -1010,7 +1045,7 @@ function buildHistoryDetailMarkup(record) {
   return `
     <div class="audit-summary">
       <div class="audit-row"><strong>Season:</strong> <span>${record.year}</span></div>
-      <div class="audit-row"><strong>Source:</strong> <span>${record.source === "manual" ? "Manually entered / corrected" : "Saved draw"} · ${record.completeness === "top-three" ? "Partial top-three only" : "Complete order"}</span></div>
+      <div class="audit-row"><strong>Source:</strong> <span>${record.source === "manual" ? "Manually entered / corrected" : record.source === "dry-run" ? "Saved dry-run simulation" : "Saved draw"} · ${record.completeness === "top-three" ? "Partial top-three only" : "Complete order"}</span></div>
       <div class="audit-row"><strong>Lottery run:</strong> <span>${record.runAt ? escapeHtml(formatTime(record.runAt)) : "Unknown — not rerun"}</span></div>
       <div class="audit-row"><strong>#1 pick:</strong> <span>${escapeHtml(record.finalOrder[0]?.team || "Unknown")}</span></div>
       <div class="audit-row"><strong>Rules:</strong> <span>${record.settings ? escapeHtml(formatRuleSettings(record.settings)) : "Unknown"}</span></div>
@@ -1020,7 +1055,7 @@ function buildHistoryDetailMarkup(record) {
     <div class="table-wrap">
       <table class="odds-table">
         <thead>
-          <tr><th>Pick</th><th>Team</th><th>Pick owner</th><th>Pre-lottery slot</th><th>Movement</th></tr>
+          <tr><th>Pick</th><th>Team</th><th title="The team that owned this pick when the draw was saved.">Pick owner</th><th title="Original slot in the draft order before the lottery (worst record is #1).">Pre-lottery slot</th><th title="Places gained or lost compared with the original pre-lottery slot.">Movement</th></tr>
         </thead>
         <tbody>${orderRows}</tbody>
       </table>
@@ -1029,13 +1064,16 @@ function buildHistoryDetailMarkup(record) {
     ${record.source === "manual" || record.completeness === "top-three"
       ? '<p class="helper-text">Trades are not generated from transcribed history. Original standings / trade execution are not established.</p>'
       : buildRequiredTradesMarkup(record.trades, "No trades were needed for this lottery.")}
+    ${Array.isArray(record.reviewedTrades) ? `
+      <h3 class="subheading">Reviewed trade log (${record.reviewedTrades.length})</h3>
+      <pre class="trade-table">${escapeHtml(lotteryTools.tradesTable(record.reviewedTrades))}</pre>` : ""}
     ${oddsRows ? `
       <details class="history-details">
         <summary>Odds used (${record.totalBalls} total balls)</summary>
         <div class="table-wrap">
           <table class="odds-table">
             <thead>
-              <tr><th>Pre-lottery slot</th><th>Team</th><th>Pick owner</th><th>Balls</th><th>Chance (first draw)</th></tr>
+              <tr><th title="Original slot before the lottery (worst record is #1).">Pre-lottery slot</th><th>Team</th><th title="The team that owned this pick when the draw was saved.">Pick owner</th><th title="Each ball is one weighted chance in the lottery.">Balls</th><th title="Chance of winning #1 after protections remove ineligible teams.">Chance (first draw)</th></tr>
             </thead>
             <tbody>${oddsRows}</tbody>
           </table>
@@ -1046,22 +1084,27 @@ function buildHistoryDetailMarkup(record) {
 }
 
 function renderLotteryHistory() {
-  const years = lotteryHistory.getSortedYears(state.lotteryHistory).map(String);
+  const years = lotteryHistory.getSortedYears(state.lotteryHistory)
+    .filter((year) => els.showArchivedToggle?.checked || !state.lotteryHistory[String(year)].archived).map(String);
   if (!years.includes(state.selectedHistoryYear)) {
     state.selectedHistoryYear = years[0] || "";
   }
 
   els.historyYearSelect.innerHTML = years.length
-    ? years.map((year) => `<option value="${year}">${year}</option>`).join("")
+    ? years.map((year) => `<option value="${year}">${year}${state.lotteryHistory[year].archived ? " (archived)" : ""}</option>`).join("")
     : '<option value="">No saved lotteries</option>';
   els.historyYearSelect.value = state.selectedHistoryYear;
   els.historyYearSelect.disabled = !years.length;
   els.deleteHistoryYearBtn.disabled = !years.length || state.isRunning;
-  els.exportHistoryBtn.disabled = !years.length;
+  els.exportHistoryBtn.disabled = !Object.keys(state.lotteryHistory).length;
   els.importHistoryBtn.disabled = state.isRunning;
   els.importHistoryInput.disabled = state.isRunning;
 
   const record = state.lotteryHistory[state.selectedHistoryYear];
+  if (els.archiveHistoryYearBtn) {
+    els.archiveHistoryYearBtn.disabled = !record || state.isRunning;
+    els.archiveHistoryYearBtn.textContent = record?.archived ? "Unarchive Year" : "Archive Year";
+  }
   els.historyDetail.innerHTML = record
     ? buildHistoryDetailMarkup(record)
     : '<p class="helper-text">No lotteries saved yet. Every completed lottery is saved here automatically under its season year.</p>';
@@ -1076,9 +1119,46 @@ function renderLotteryHistory() {
   document.getElementById("loadLegacySeasonBtn").disabled = !candidates.length || state.isRunning;
 }
 
+function sanitizeProtectionOverrides(value) {
+  if (!value || typeof value !== "object") return null;
+  const year = lotteryHistory.sanitizeYear(value.year);
+  if (year === null) return null;
+  const result = { year };
+  ["previousNumberOne", "previousTopThree"].forEach((flag) => {
+    if (Array.isArray(value[flag])) {
+      result[flag] = [...new Set(value[flag].map(normalizeName).filter(Boolean))];
+    }
+  });
+  return Object.keys(result).length > 1 ? result : null;
+}
+
+function hasProtectionOverride(flag) {
+  return state.protectionOverrides?.year === state.seasonYear &&
+    Array.isArray(state.protectionOverrides[flag]);
+}
+
+/** Overlay each flag independently so an explicit empty selection does not erase the other source. */
 function getProtection() {
-  return lotteryHistory.deriveProtection(state.teams, state.lotteryHistory, state.seasonYear,
+  const protection = lotteryHistory.deriveProtection(state.teams, state.lotteryHistory, state.seasonYear,
     state.manualProtectionYear === state.seasonYear);
+  return { ...protection, teams: protection.teams.map((team) => {
+    const copy = { ...team };
+    ["previousNumberOne", "previousTopThree"].forEach((flag) => {
+      if (hasProtectionOverride(flag)) {
+        copy[flag] = state.protectionOverrides[flag].some((name) => name.toLowerCase() === team.name.toLowerCase());
+      }
+    });
+    return copy;
+  }) };
+}
+
+function protectionReady(year = state.seasonYear) {
+  if (year !== state.seasonYear) return false;
+  const protection = getProtection();
+  return (!els.topThreeCooldownToggle.checked || protection.automatic ||
+      state.manualProtectionYear === year || hasProtectionOverride("previousTopThree")) &&
+    (!els.consecutiveOneToggle.checked || protection.automatic ||
+      state.manualProtectionYear === year || hasProtectionOverride("previousNumberOne"));
 }
 
 function renderProtection() {
@@ -1093,6 +1173,7 @@ function renderProtection() {
   const toggle = document.getElementById("manualProtectionToggle");
   toggle.checked = manual;
   toggle.disabled = isLocked();
+  renderFlagAudit();
 }
 
 function getLegacyCandidates() {
@@ -1190,32 +1271,39 @@ function renderCurrentRules() {
     ["No consecutive #1", settings.noConsecutiveNumberOne ? "ON" : "OFF"],
   ];
   els.currentRulesPanel.innerHTML = `
+    <p class="helper-text"><strong>Active version:</strong> <code class="rule-version-id">${escapeHtml(active.id)}</code></p>
     <p class="helper-text rules-effective-date">In effect since ${escapeHtml(formatTime(effectiveAt))}</p>
     ${rows.map(([label, value]) => `<div class="audit-row"><strong>${escapeHtml(label)}:</strong> <span>${escapeHtml(value)}</span></div>`).join("")}
   `;
 }
 
 function renderRuleHistory() {
-  const prior = state.ruleHistory.slice(1);
   els.ruleHistoryList.innerHTML = "";
 
-  if (!prior.length) {
-    els.ruleHistoryList.innerHTML = '<p class="helper-text">No prior rule versions.</p>';
+  if (!state.ruleHistory.length) {
+    els.ruleHistoryList.innerHTML = '<p class="helper-text">No rule versions captured yet.</p>';
     return;
   }
 
-  prior.forEach((version, index) => {
-    const next = state.ruleHistory[index];
+  state.ruleHistory.forEach((version, index) => {
+    const previous = state.ruleHistory[index + 1];
+    const active = index === 0;
+    const changes = previous ? lotteryTools?.ruleChanges(previous.settings, version.settings) || [] : [];
     const { settings } = version;
     const item = document.createElement("article");
     item.className = "history-item";
 
     item.innerHTML = `
-      <p class="history-item-title">Replaced ${escapeHtml(formatTime(next.effectiveAt))}</p>
+      <p class="history-item-title"><span class="rule-version-badge">${active ? "Active" : "Historical"} version</span>
+        <code class="rule-version-id">${escapeHtml(version.id)}</code></p>
+      <p class="history-item-line">Captured <time datetime="${escapeHtml(version.effectiveAt)}">${escapeHtml(formatTime(version.effectiveAt))}</time></p>
       ${version.notes ? `<p class="history-item-line"><em>${escapeHtml(version.notes)}</em></p>` : ""}
       <p class="history-item-line">Picks: ${settings.lotteryPickCount} · Bottom-4: ${settings.bottomFourProtection ? "ON" : "OFF"} · Top-3 CD: ${settings.topThreeCooldown ? "ON" : "OFF"} · No Consec. #1: ${settings.noConsecutiveNumberOne ? "ON" : "OFF"}</p>
+      <p class="history-item-line">${changes.length ? changes.map((change) => escapeHtml(change.replace(/\bOn\b/g, "ON").replace(/\bOff\b/g, "OFF"))).join("<br>") : previous ? "No settings changed from the preceding snapshot." : "Initial rule snapshot."}</p>
+      <button class="button secondary restore-rule-btn" data-rule-id="${escapeHtml(version.id)}" ${active || isLocked() ? "disabled" : ""}>Restore this version</button>
     `;
 
+    item.querySelector(".restore-rule-btn").addEventListener("click", () => restoreRuleVersion(version.id));
     els.ruleHistoryList.appendChild(item);
   });
 }
@@ -1241,6 +1329,8 @@ function renderLockState() {
 
   els.startLotteryBtn.disabled = state.isRunning || state.teams.length < 2;
   els.resetBtn.disabled = state.isRunning;
+  if (els.dryRunBtn) els.dryRunBtn.disabled = state.isRunning || state.teams.length < 2;
+  if (els.generateBracketBtn) els.generateBracketBtn.disabled = !state.results.length || state.isRunning;
 
   if (state.isRunning) {
     els.setupLockBtn.textContent = "Lottery Running";
@@ -1268,6 +1358,9 @@ function render() {
   renderRuleHistory();
   renderTrades();
   renderLockState();
+  renderMobileTeams();
+  renderDryRun();
+  renderBracket();
   persistState();
 }
 
@@ -1300,11 +1393,16 @@ function buildLotteryEntries() {
   const ordered = orderLotteryEntries(entries, {
     seed: state.seedEnabled ? state.seedText : "",
   });
+  const descriptions = typeof lotteryOrder.describeTieBreaks === "function"
+    ? lotteryOrder.describeTieBreaks(entries, { seed: state.seedEnabled ? state.seedText : "" }) : [];
 
   return ordered.map((team, index) => ({
     ...team,
     standingIndex: index,
     balls: getBallCount(index),
+    tieBreak: descriptions.find((entry) => entry.id === team.id)?.reason || "",
+    tieOpponents: descriptions.find((entry) => entry.id === team.id)?.opponents || [],
+    tieBreaks: descriptions.filter((entry) => entry.id === team.id),
   }));
 }
 
@@ -1382,7 +1480,6 @@ function getRandomSource() {
 function runLotteryCalculation(randomFn) {
   const entries = buildLotteryEntries();
   const safeRequested = clampLotteryPickCount(els.lotteryPickCount.value);
-  els.lotteryPickCount.value = String(safeRequested);
 
   const lotteryCount = Math.min(safeRequested, entries.length);
   const remaining = [...entries];
@@ -1528,8 +1625,7 @@ function startLottery() {
   }
   state.seasonYear = year;
   const protection = getProtection();
-  if (!protection.automatic && state.manualProtectionYear !== year &&
-      (els.topThreeCooldownToggle.checked || els.consecutiveOneToggle.checked)) {
+  if (!protectionReady(year)) {
     render();
     showToast(`Missing ${year - 1} history. Save that order or explicitly enable and review manual protection flags.`);
     return;
@@ -1607,7 +1703,7 @@ function downloadJsonFile(fileName, payload) {
   URL.revokeObjectURL(url);
 }
 
-function downloadJson() {
+async function downloadJson() {
   const payload = {
     schemaVersion: STORAGE_VERSION,
     generatedAt: new Date().toISOString(),
@@ -1623,15 +1719,16 @@ function downloadJson() {
     ruleHistory: state.ruleHistory,
     seasonYear: state.seasonYear,
     manualProtectionYear: state.manualProtectionYear,
+    protectionOverrides: state.protectionOverrides,
     lotteryHistory: state.lotteryHistory,
   };
 
-  downloadJsonFile(`flockville-lottery-${new Date().toISOString().slice(0, 10)}.json`, payload);
+  await downloadChecksummedJson(`flockville-lottery-${new Date().toISOString().slice(0, 10)}.json`, payload);
 }
 
-function exportLotteryHistory() {
+async function exportLotteryHistory() {
   if (!Object.keys(state.lotteryHistory).length) return;
-  downloadJsonFile(
+  await downloadChecksummedJson(
     `flockville-lottery-history-${new Date().toISOString().slice(0, 10)}.json`,
     lotteryHistory.buildHistoryExport(state.lotteryHistory)
   );
@@ -1664,6 +1761,7 @@ async function importLotteryHistory() {
 
   try {
     const payload = JSON.parse(await file.text());
+    if (!await approveChecksum(payload)) return;
     const incoming = lotteryHistory.extractHistoryFromPayload(payload);
     const candidates = sanitizeSeasonHistory(payload.seasonHistory);
     if (!Object.keys(incoming).length && !candidates.length) {
@@ -1712,6 +1810,12 @@ function resetApp() {
   state.seedText = "";
   state.lastRunMeta = null;
   state.manualProtectionYear = null;
+  state.protectionOverrides = null;
+  state.undoTradeIds = [];
+  state.dryRun = null;
+  state.bracket = null;
+  state.finalizeDraft = null;
+  state.recoveryCandidate = null;
   state.importedSeasonCandidates = [];
 
   applySettingsToUi({});
@@ -1791,7 +1895,7 @@ function loadAllNflTeams() {
   }
 }
 
-function finalizeSeason() {
+function finalizeSeason(reviewedTrades = state.trades, alreadyConfirmed = false) {
   if (state.isRunning) {
     showToast("Wait for the lottery to complete before finalizing.");
     return;
@@ -1807,7 +1911,7 @@ function finalizeSeason() {
     showToast("This older live result has no verified season year. Assign its order a year in Past Lotteries instead.");
     return;
   }
-  if (!confirm(`Finalize the ${resultYear} draw? This will archive results and advance to ${resultYear + 1}.`)) {
+  if (!alreadyConfirmed && !confirm(`Finalize the ${resultYear} draw? This will archive results and advance to ${resultYear + 1}.`)) {
     return;
   }
 
@@ -1821,13 +1925,26 @@ function finalizeSeason() {
     seed: state.lastRunMeta?.seedEnabled ? state.lastRunMeta.seed : "",
     ruleVersionId: getActiveRuleVersion()?.id || "",
     runMeta: state.lastRunMeta || null,
+    reviewedTrades: sanitizeTrades(reviewedTrades),
   });
+  const savedRecord = state.lotteryHistory[String(resultYear)];
+  if (savedRecord) {
+    state.lotteryHistory = lotteryHistory.upsertRecord(state.lotteryHistory, {
+      ...savedRecord, reviewedTrades: sanitizeTrades(reviewedTrades), finalized: true,
+    });
+    persistHistory();
+  }
 
   state.seasonHistory = state.seasonHistory.slice(0, MAX_SEASON_HISTORY);
   state.results = [];
   state.lastRunMeta = null;
   state.seasonYear = lotteryHistory.sanitizeYear(resultYear + 1) ?? resultYear;
   state.manualProtectionYear = null;
+  state.protectionOverrides = null;
+  state.trades = sanitizeTrades(reviewedTrades);
+  state.undoTradeIds = [];
+  state.finalizeDraft = null;
+  closeDialog(els.finalizeDialog);
 
   els.machineText.textContent = "READY";
   els.statusText.textContent = `Season finalized. Ready to set up the ${state.seasonYear} draw.`;
@@ -1851,6 +1968,7 @@ async function importJson() {
   try {
     const text = await file.text();
     const parsed = JSON.parse(text);
+    if (!await approveChecksum(parsed)) return;
     const restored = sanitizeImportedPayload(parsed);
 
     state.teams = restored.teams;
@@ -1864,6 +1982,9 @@ async function importJson() {
     state.lastRunMeta = restored.lastRunMeta;
     state.seasonYear = restored.seasonYear;
     state.manualProtectionYear = restored.manualProtectionYear;
+    state.protectionOverrides = restored.protectionOverrides;
+    state.undoTradeIds = [];
+    state.dryRun = null;
     if (Object.keys(restored.lotteryHistory).length) mergeImportedHistory(restored.lotteryHistory);
 
     applySettingsToUi(restored.settings);
@@ -1875,6 +1996,7 @@ async function importJson() {
     }
 
     render();
+    if (checksumWarning) els.statusText.textContent = checksumWarning;
     showToast("Import complete.");
   } catch {
     showToast("Invalid JSON import file. Please choose a valid export.");
@@ -1914,12 +2036,22 @@ function handleSettingsChange() {
   if (String(clamped) !== String(els.lotteryPickCount.value)) {
     els.lotteryPickCount.value = String(clamped);
   }
+  if (settingsMatchRuleVersion(getSettingsFromUi(), getActiveRuleVersion())) return;
 
   state.results = [];
   state.lastRunMeta = null;
   els.statusText.textContent = DEFAULT_STATUS;
   snapshotRuleVersion();
-  render();
+  renderResults();
+  renderRequiredTrades();
+  renderLotteryTransparency();
+  renderAuditPanel();
+  renderSteps();
+  renderCurrentRules();
+  renderRuleHistory();
+  renderBracket();
+  renderLockState();
+  persistState();
 }
 
 function resetTradeForm() {
@@ -1942,6 +2074,7 @@ function getTradeFormData() {
 }
 
 function saveTrade() {
+  if (state.isRunning) return;
   const trade = getTradeFormData();
   if (!trade.fromTeam || !trade.toTeam) {
     showToast("Choose both a source and destination team.");
@@ -1958,6 +2091,7 @@ function saveTrade() {
     showToast("Trade updated.");
   } else {
     state.trades.push({ id: createId(), createdAt: new Date().toISOString(), source: "manual", ...trade });
+    state.undoTradeIds = [state.trades.at(-1).id];
     showToast("Trade added.");
   }
 
@@ -1979,7 +2113,9 @@ function editTrade(id) {
 }
 
 function removeTrade(id) {
+  if (state.isRunning) return;
   state.trades = state.trades.filter((entry) => entry.id !== id);
+  state.undoTradeIds = state.undoTradeIds.filter((entry) => entry !== id);
   if (state.editingTradeId === id) resetTradeForm();
   render();
   showToast("Trade removed.");
@@ -2009,6 +2145,7 @@ async function copyTradeDiscordList() {
 }
 
 function generateTradesFromResults() {
+  if (state.isRunning) return;
   if (!state.results.length) {
     showToast("Run the lottery first before generating trades.");
     return;
@@ -2027,6 +2164,7 @@ function generateTradesFromResults() {
   }
 
   const now = new Date().toISOString();
+  const addedIds = [];
   let added = 0;
   requiredTrades.forEach((trade) => {
     const notes = `Auto-generated from lottery results: ${trade.summary}.`;
@@ -2045,12 +2183,14 @@ function generateTradesFromResults() {
       createdAt: now,
       source: "auto",
     });
+    addedIds.push(state.trades.at(-1).id);
     added += 1;
   });
 
   if (added === 0) {
     showToast("Auto-generated trades already exist for every required pick swap.");
   } else {
+    state.undoTradeIds = [addedIds.at(-1)];
     showToast(`Generated ${added} trade${added === 1 ? "" : "s"} to put the picks in lottery order.`);
   }
   render();
@@ -2126,6 +2266,10 @@ async function copySeasonRecap() {
 
 function renderTrades() {
   els.tradeList.innerHTML = "";
+  if (els.undoTradeBtn) els.undoTradeBtn.disabled = state.isRunning || !state.undoTradeIds.some((id) => state.trades.some((trade) => trade.id === id));
+  [els.exportTradesCsvBtn, els.exportTradesTableBtn].forEach((button) => {
+    if (button) button.disabled = !state.trades.length;
+  });
 
   if (!state.trades.length) {
     els.tradeList.innerHTML = '<p class="helper-text">No trades added yet. Add a trade above to build a Discord-ready list.</p>';
@@ -2169,6 +2313,462 @@ function renderTrades() {
   els.copyTradeDiscordBtn.disabled = false;
 }
 
+function openDialog(dialog) {
+  if (!dialog) return;
+  if (typeof dialog.showModal === "function") dialog.showModal();
+  else dialog.open = true;
+}
+
+function closeDialog(dialog) {
+  if (!dialog) return;
+  if (typeof dialog.close === "function") dialog.close();
+  else dialog.open = false;
+}
+
+function buildTieBreakBadge(entry) {
+  if (entry.tieBreaks?.length) {
+    return sanitizeTieBreaks(entry.tieBreaks).map((description) =>
+      `<span class="tie-break-badge" title="${escapeHtml(`Tied with ${description.opponents.join(", ")}; ordering by ${description.reason} for the original standings slot only, not the lottery draw.`)}">Standings tie-break: ${escapeHtml(description.reason)}</span>`).join(" ");
+  }
+  if (!entry.tieBreak) return "";
+  return `<span class="tie-break-badge" title="${escapeHtml(`Tied with ${(entry.tieOpponents || []).join(", ")}; ordering by ${entry.tieBreak} for the original standings slot only, not the lottery draw.`)}">Standings tie-break: ${escapeHtml(entry.tieBreak)}</span>`;
+}
+
+function sanitizeTieBreaks(list) {
+  if (!Array.isArray(list)) return [];
+  return list.filter((entry) => entry && ["Strength of Schedule", "Head-to-head", "Coin flip"].includes(entry.reason))
+    .map((entry) => ({ reason: entry.reason, opponents: Array.isArray(entry.opponents) ? entry.opponents.map(normalizeName).filter(Boolean) : [] }));
+}
+
+function undoLastTrade() {
+  if (state.isRunning || !state.undoTradeIds.length) return;
+  const removed = new Set([state.undoTradeIds.at(-1)]);
+  state.trades = state.trades.filter((trade) => !removed.has(trade.id));
+  if (removed.has(state.editingTradeId)) resetTradeForm();
+  state.undoTradeIds = [];
+  render();
+  showToast("Last trade addition undone. Add a new trade to enable undo again.");
+}
+
+/** Keep edits staged in the dialog until final confirmation; cancelling leaves live trades intact. */
+function openFinalizeReview() {
+  if (state.isRunning || !state.results.length) return;
+  state.finalizeDraft = sanitizeTrades(state.trades);
+  renderFinalizeReview();
+  openDialog(els.finalizeDialog);
+}
+
+function renderFinalizeReview() {
+  els.finalizeTradeList.innerHTML = "";
+  (state.finalizeDraft || []).forEach((trade, index) => {
+    const item = document.createElement("article");
+    item.className = "trade-item";
+    item.innerHTML = `
+      <label>From team <input class="review-from" value="${escapeHtml(trade.fromTeam)}"></label>
+      <label>To team <input class="review-to" value="${escapeHtml(trade.toTeam)}"></label>
+      <label>Assets <textarea class="review-assets">${escapeHtml(trade.assets.join("\n"))}</textarea></label>
+      <label>Notes <textarea class="review-notes">${escapeHtml(trade.notes)}</textarea></label>
+      <button type="button" class="button danger review-remove">Remove trade ${index + 1}</button>`;
+    [[".review-from", "fromTeam"], [".review-to", "toTeam"], [".review-assets", "assets"], [".review-notes", "notes"]]
+      .forEach(([selector, field]) => item.querySelector(selector).addEventListener("input", (event) => {
+        trade[field] = field === "assets" ? normalizeAssets(event.target.value) : normalizeName(event.target.value);
+      }));
+    item.querySelector(".review-remove").addEventListener("click", () => {
+      state.finalizeDraft = state.finalizeDraft.filter((entry) => entry !== trade);
+      renderFinalizeReview();
+    });
+    els.finalizeTradeList.appendChild(item);
+  });
+  if (!state.finalizeDraft?.length) {
+    els.finalizeTradeList.innerHTML = '<p class="helper-text">No trades in the reviewed list. Confirm to finalize the draft order without logged trades.</p>';
+  }
+}
+
+function confirmFinalizeReview() {
+  if (!state.finalizeDraft) return;
+  if (state.finalizeDraft.some((trade) => !sanitizeTrade(trade))) {
+    showToast("Every reviewed trade needs both teams and at least one asset or note.");
+    return;
+  }
+  finalizeSeason(state.finalizeDraft, true);
+}
+
+function renderFlagAudit() {
+  if (!els.flagSourcePanel) return;
+  const summary = els.flagSourceSummary || els.flagSourcePanel;
+  const protection = getProtection();
+  const flagLabel = { previousNumberOne: "Previous #1", previousTopThree: "Previous top three" };
+  const previous = protection.record;
+  const recordAudit = `<div class="audit-row"><strong>Previous record:</strong>
+    <span>Year: ${protection.priorYear} · finalized:${previous?.finalized ? "Y" : "N"} · manual:${previous?.source === "manual" ? "Y" : "N"}</span></div>
+    <div class="audit-row"><strong>Recorded previous #1:</strong> <span>${escapeHtml(previous?.finalOrder.find((pick) => pick.pick === 1)?.team || "Unavailable")}</span></div>
+    <div class="audit-row"><strong>Recorded previous top three:</strong> <span>${escapeHtml(previous?.finalOrder.filter((pick) => pick.pick <= 3).map((pick) => pick.team).join(", ") || "Unavailable")}</span></div>`;
+  summary.innerHTML = recordAudit + ["previousNumberOne", "previousTopThree"].map((flag) => {
+    const source = hasProtectionOverride(flag) ? `Manual ${flagLabel[flag]} override for ${state.seasonYear}`
+      : protection.automatic ? `${protection.priorYear} saved history`
+        : state.manualProtectionYear === state.seasonYear ? `Legacy manual flags for ${state.seasonYear}` : "No confirmed source";
+    const names = protection.teams.filter((team) => team[flag]).map((team) => team.name).join(", ") || "None";
+    return `<div class="audit-row"><strong>${flagLabel[flag]}:</strong> <span>${escapeHtml(names)} — ${escapeHtml(source)}</span></div>`;
+  }).join("");
+  [els.overrideNumberOneBtn, els.overrideTopThreeBtn, els.clearProtectionOverrideBtn].forEach((button) => {
+    if (button) button.disabled = isLocked();
+  });
+}
+
+function openFlagOverride(flag) {
+  if (isLocked()) return;
+  state.editingProtectionFlag = flag;
+  els.flagOverrideTeams.innerHTML = "";
+  getProtection().teams.forEach((team) => {
+    const label = document.createElement("label");
+    label.innerHTML = `<input type="checkbox" ${team[flag] ? "checked" : ""}> ${escapeHtml(team.name)}`;
+    const checkbox = label.querySelector("input");
+    checkbox.checked = Boolean(team[flag]);
+    checkbox.dataset.teamName = team.name;
+    els.flagOverrideTeams.appendChild(label);
+  });
+  const title = document.getElementById("flagOverrideHeading") || document.getElementById("flagOverrideTitle");
+  if (title) title.textContent = state.editingProtectionFlag === "previousNumberOne"
+    ? `Override previous #1 for ${state.seasonYear}` : `Override previous top three for ${state.seasonYear}`;
+  openDialog(els.flagOverrideDialog);
+}
+
+function saveFlagOverride() {
+  if (isLocked() || !["previousNumberOne", "previousTopThree"].includes(state.editingProtectionFlag)) return;
+  const names = [...els.flagOverrideTeams.querySelectorAll("input")]
+    .filter((input) => input.checked).map((input) => input.dataset.teamName);
+  const overrides = state.protectionOverrides?.year === state.seasonYear ? state.protectionOverrides : { year: state.seasonYear };
+  state.protectionOverrides = { ...overrides, [state.editingProtectionFlag]: names };
+  state.results = [];
+  state.lastRunMeta = null;
+  closeDialog(els.flagOverrideDialog);
+  state.editingProtectionFlag = "";
+  render();
+}
+
+function clearProtectionOverrides() {
+  if (isLocked()) return;
+  state.protectionOverrides = null;
+  state.manualProtectionYear = null;
+  state.results = [];
+  state.lastRunMeta = null;
+  render();
+}
+
+/** A dry run uses the real calculation, capturing exports separately without persisting or touching live data. */
+function createDryRun(randomFn = getRandomSource().randomFn) {
+  if (state.isRunning || state.teams.length < 2) return;
+  if (!protectionReady()) {
+    showToast(`Missing ${state.seasonYear - 1} history. Confirm protection flags before a dry run.`);
+    return;
+  }
+  try {
+    const results = runLotteryCalculation(randomFn);
+    const odds = buildLotteryTransparencyData();
+    const meta = { ...buildRunMeta(getRandomSource().seedUsed), completed: true };
+    state.dryRun = JSON.parse(JSON.stringify({
+      year: state.seasonYear, runAt: meta.timestamp, savedAt: meta.timestamp,
+      teams: state.teams,
+      finalOrder: results.map((entry) => ({ ...entry, originalSlot: getOriginalSlot(entry) })),
+      odds: odds.entries.map((entry) => ({
+        slot: entry.standingIndex + 1, team: entry.name, owner: entry.owner, balls: entry.balls, percent: entry.percent,
+      })),
+      totalBalls: odds.totalBalls, trades: getRequiredTrades(results),
+      settings: getSettingsFromUi(), seed: meta.seedEnabled ? meta.seed : "",
+      ruleVersionId: getActiveRuleVersion()?.id || "",
+    }));
+    if (els.dryRunYearInput) els.dryRunYearInput.value = String(state.seasonYear + 1);
+    renderDryRun();
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+function renderDryRun() {
+  if (!els.dryRunPanel) return;
+  els.dryRunPanel.hidden = !state.dryRun;
+  if (!state.dryRun) return;
+  if (!els.dryRunSnapshotSummary) {
+    els.dryRunSnapshotSummary = document.createElement("div");
+    els.dryRunSnapshotSummary.id = "dryRunSnapshotSummary";
+    els.dryRunSnapshotSummary.className = "audit-summary";
+    els.dryRunPanel.insertBefore(els.dryRunSnapshotSummary, els.dryRunPanel.firstChild);
+  }
+  els.dryRunSnapshotSummary.innerHTML = `
+    <p><strong>Snapshot year:</strong> ${state.dryRun.year} · <strong>Captured:</strong> ${escapeHtml(formatTime(state.dryRun.runAt))}</p>
+    <p><strong>Snapshot rules:</strong> ${escapeHtml(formatRuleSettings(state.dryRun.settings))}</p>
+    <p><strong>Snapshot seed:</strong> ${escapeHtml(state.dryRun.seed || "Not seeded")} · <strong>Teams:</strong> ${state.dryRun.teams.length}</p>
+    <p class="helper-text">Snapshot only: later setup changes do not update this preview.</p>`;
+  els.dryRunResults.innerHTML = state.dryRun.finalOrder.map((entry) =>
+    `<article class="result-card"><div class="result-pick-row"><div class="result-pick">Pick #${entry.pick}</div>${buildMovementBadge(getOriginalSlot(entry), entry.pick)}</div>
+      <div class="result-team">${escapeHtml(entry.team)}</div>
+      <div class="result-owner">${escapeHtml(entry.owner)}</div>
+      ${getOriginalSlot(entry) ? `<div class="result-original" title="Original slot before the lottery (worst record is #1).">Pre-lottery slot: #${getOriginalSlot(entry)}</div>` : ""}
+      ${entry.note ? `<div class="result-note">${escapeHtml(entry.note)}</div>` : ""}${buildTieBreakBadge(entry)}</article>`).join("");
+  els.dryRunTrades.innerHTML = buildRequiredTradesMarkup(state.dryRun.trades, "No required trades in this dry run.");
+}
+
+function saveDryRun() {
+  if (!state.dryRun || state.isRunning) return;
+  const year = lotteryHistory.sanitizeYear(els.dryRunYearInput.value);
+  if (year === null || year === state.dryRun.year || state.lotteryHistory[String(year)]) {
+    showToast("Choose a valid new year, different from the simulated year and any saved year.");
+    return;
+  }
+  if (!confirm(`Save this simulated order as ${year}? Live results and setup will remain unchanged.`)) return;
+  state.lotteryHistory = lotteryHistory.upsertRecord(state.lotteryHistory, {
+    ...state.dryRun, year, source: "dry-run",
+  });
+  state.selectedHistoryYear = String(year);
+  state.dryRun = null;
+  persistHistory();
+  renderDryRun();
+  renderLotteryHistory();
+  showToast(`Dry run saved as ${year}.`);
+}
+
+async function exportDryRun() {
+  if (!state.dryRun) return;
+  await downloadChecksummedJson(`flockville-dry-run-${state.dryRun.year}.json`, {
+    ...lotteryHistory.buildHistoryExport({ [state.dryRun.year]: state.dryRun }),
+    teams: state.dryRun.teams, dryRun: true,
+  });
+}
+
+function generateBracket() {
+  if (!state.results.length || state.isRunning) return;
+  try {
+    state.bracket = lotteryTools.buildBracket(state.results, Number(els.playoffTeamCount.value));
+    state.bracketResults = JSON.parse(JSON.stringify(state.results));
+    renderBracket();
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+function renderBracket() {
+  if (!els.bracketPanel) return;
+  const results = els.bracketResults || els.bracketPanel;
+  const valid = state.bracket && JSON.stringify(state.bracketResults) === JSON.stringify(state.results);
+  if (!valid && state.bracketResults) state.bracket = null;
+  [els.exportBracketCsvBtn, els.exportBracketTextBtn].forEach((button) => {
+    if (button) button.disabled = !state.bracket;
+  });
+  if (!state.bracket) {
+    els.bracketPanel.hidden = true;
+    results.innerHTML = '<p class="helper-text">Generate a playoff bracket from completed lottery results.</p>';
+    return;
+  }
+  els.bracketPanel.hidden = false;
+  const label = (seed) => `#${seed.seed} ${escapeHtml(seed.team)} (pick #${seed.pick}, ${escapeHtml(seed.owner)})`;
+  results.innerHTML = `<h3>Seed order</h3><ol class="bracket-seeds">${state.bracket.seeds.map((seed) =>
+    `<li>${label(seed)}</li>`).join("")}</ol><div class="bracket-grid">${state.bracket.matches.map((match) =>
+    `<article class="bracket-match">${label(match.home)}<br>${match.away ? `vs ${label(match.away)}` : "BYE"}</article>`).join("")}</div>`;
+}
+
+function renderMobileTeams() {
+  if (!els.mobileTeamList) return;
+  els.mobileTeamList.innerHTML = "";
+  const entriesById = new Map(buildLotteryEntries().map((entry) => [entry.id, entry]));
+  const protection = getProtection();
+  const locked = isLocked();
+  const ownerNames = [...new Set([...state.teams.map((team) => team.name), ...state.teams.map((team) => team.owner), ...NFL_TEAMS])];
+  const options = (names, selected) => names.map((name) =>
+    `<option value="${escapeHtml(name)}" ${name === selected ? "selected" : ""}>${escapeHtml(name)}</option>`).join("");
+  protection.teams.forEach((team, index) => {
+    const card = document.createElement("article");
+    card.className = "mobile-team-card";
+    card.dataset.teamId = team.id;
+    card.innerHTML = `<div class="mobile-team-heading"><strong>#${index + 1} ${escapeHtml(team.name)}</strong><span>${getBallCount(index)} balls</span></div>
+      ${buildTieBreakBadge(entriesById.get(team.id) || {})}
+      <div class="mobile-team-fields">
+        <label>Team name <select class="team-name-edit mobile-name" aria-label="${escapeHtml(team.name)} team name" ${locked ? "disabled" : ""}>
+          ${options(NFL_TEAMS.includes(team.name) ? NFL_TEAMS : [team.name, ...NFL_TEAMS], team.name)}
+        </select></label>
+        <label>Pick owner <select class="owner-edit mobile-owner" aria-label="${escapeHtml(team.name)} pick owner" ${locked ? "disabled" : ""}>${options(ownerNames, team.owner)}</select></label>
+      </div>
+      <div class="mobile-team-flags">
+        <label>Previous top three <input class="inline-check previous-top-three" type="checkbox" aria-label="${escapeHtml(team.name)} previous top three"
+          ${team.previousTopThree ? "checked" : ""} ${locked || protection.automatic || hasProtectionOverride("previousTopThree") ? "disabled" : ""}></label>
+        <label>Previous #1 <input class="inline-check previous-number-one" type="checkbox" aria-label="${escapeHtml(team.name)} previous number one"
+          ${team.previousNumberOne ? "checked" : ""} ${locked || protection.automatic || hasProtectionOverride("previousNumberOne") ? "disabled" : ""}></label>
+      </div>
+      <div class="button-row">
+        <button class="button secondary mobile-team-reorder mobile-up" aria-label="Move ${escapeHtml(team.name)} up" ${isLocked() || !index ? "disabled" : ""}>↑ Up</button>
+        <button class="button secondary mobile-team-reorder mobile-down" aria-label="Move ${escapeHtml(team.name)} down" ${isLocked() || index === state.teams.length - 1 ? "disabled" : ""}>↓ Down</button>
+        <button class="button danger mobile-remove" aria-label="Remove ${escapeHtml(team.name)}" ${locked ? "disabled" : ""}>Remove</button>
+      </div>`;
+    card.querySelector(".mobile-name").addEventListener("change", (event) => {
+      if (!renameTeam(team.id, event.target.value)) event.target.value = team.name;
+    });
+    card.querySelector(".mobile-owner").addEventListener("change", (event) => {
+      updateTeam(team.id, "owner", normalizeName(event.target.value) || team.name);
+    });
+    card.querySelector(".previous-top-three").addEventListener("change", (event) => updateTeam(team.id, "previousTopThree", event.target.checked));
+    card.querySelector(".previous-number-one").addEventListener("change", (event) => updateTeam(team.id, "previousNumberOne", event.target.checked));
+    card.querySelector(".mobile-up").addEventListener("click", () => moveTeam(team.id, -1));
+    card.querySelector(".mobile-down").addEventListener("click", () => moveTeam(team.id, 1));
+    card.querySelector(".mobile-remove").addEventListener("click", () => removeTeam(team.id));
+    els.mobileTeamList.appendChild(card);
+  });
+}
+
+function restoreRuleVersion(id) {
+  if (isLocked()) return;
+  const version = state.ruleHistory.find((entry) => entry.id === id);
+  if (!version || version.id === getActiveRuleVersion()?.id) return;
+  const changes = lotteryTools?.ruleChanges(getSettingsFromUi(), version.settings) || [];
+  if (!confirm(`Restore rules from ${formatTime(version.effectiveAt)}?\n${changes.join("\n")}\nA new rule version will be created. Current results will be cleared.`)) return;
+  applySettingsToUi(version.settings);
+  snapshotRuleVersion(`Restored rule version ${version.id}.`, true);
+  state.results = [];
+  state.lastRunMeta = null;
+  render();
+}
+
+async function downloadChecksummedJson(fileName, payload) {
+  try {
+    const signed = await lotteryTools.withChecksum(payload);
+    downloadJsonFile(fileName, signed);
+  } catch (error) {
+    showToast(`Could not export checksum: ${error.message}`);
+  }
+}
+
+async function approveChecksum(payload) {
+  try {
+    const verification = await lotteryTools.verifyChecksum(payload);
+    checksumWarning = verification.present && !verification.valid
+      ? "Warning: this file's checksum does not match its contents. It may have been edited or corrupted; review imported data carefully."
+      : "";
+  } catch {
+    checksumWarning = "Warning: the checksum could not be verified. Import continued; review imported data carefully.";
+  }
+  if (checksumWarning) {
+    showToast(checksumWarning);
+    els.statusText.textContent = checksumWarning;
+  }
+  return true;
+}
+
+function downloadTextFile(fileName, text, type = "text/plain") {
+  const blob = new Blob([text], { type });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+async function exportTradesTable() {
+  try {
+    await navigator.clipboard.writeText(lotteryTools.tradesTable(state.trades));
+    showToast("Trade table copied.");
+  } catch {
+    downloadTextFile(`flockville-trades-${new Date().toISOString().slice(0, 10)}.txt`, lotteryTools.tradesTable(state.trades));
+    showToast("Clipboard unavailable. Trade table downloaded instead.");
+  }
+}
+
+/** Parse and sanitize recovery material without writing anything; only explicit Merge commits the preview. */
+async function previewRecovery() {
+  if (state.isRunning) return;
+  state.recoveryCandidate = null;
+  els.mergeRecoveryBtn.disabled = true;
+  try {
+    const file = els.recoveryFileInput.files?.[0];
+    const text = file ? await file.text() : els.recoveryText.value;
+    let parsed = null;
+    try { parsed = JSON.parse(text); } catch { /* Damaged exports can still contain recoverable records. */ }
+    if (parsed && !await approveChecksum(parsed)) return;
+    const incoming = lotteryTools.recoverHistory(text);
+    const preview = lotteryHistory.mergeHistory(state.lotteryHistory, incoming, { replaceConflicts: false });
+    state.recoveryCandidate = incoming;
+    const years = lotteryHistory.getSortedYears(incoming);
+    if (!years.length) throw new Error("No recoverable lottery years found.");
+    els.recoveryPreview.innerHTML = `<p>Recovered years: ${years.join(", ")}. New: ${preview.added.length}. Conflicts: ${preview.conflicts.join(", ") || "None"}.</p>
+      ${years.map((year) => `<details><summary>${year} recovered order — ${incoming[String(year)].finalOrder.length} picks, ${incoming[String(year)].odds.length} odds entries</summary>${buildHistoryDetailMarkup(incoming[String(year)])}</details>`).join("")}`;
+    els.mergeRecoveryBtn.disabled = false;
+  } catch (error) {
+    state.recoveryCandidate = null;
+    els.recoveryPreview.textContent = error.message;
+  }
+}
+
+function mergeRecovery() {
+  if (state.isRunning || !state.recoveryCandidate) return;
+  if (!confirm("Merge the previewed recovered records into saved history? Review conflicts before replacing any saved years.")) return;
+  mergeImportedHistory(state.recoveryCandidate);
+  state.recoveryCandidate = null;
+  els.mergeRecoveryBtn.disabled = true;
+  els.recoveryPreview.textContent = "Recovered history merged. Export History for a backup.";
+  render();
+}
+
+function archiveSelectedHistoryYear() {
+  if (state.isRunning) return;
+  const record = state.lotteryHistory[state.selectedHistoryYear];
+  if (!record) return;
+  state.lotteryHistory = lotteryHistory.upsertRecord(state.lotteryHistory, { ...record, archived: !record.archived });
+  persistHistory();
+  render();
+}
+
+/** Update draw-dependent views without replacing a mobile button receiving the input's blur click. */
+function updateSeedText(value) {
+  if (state.isRunning) return;
+  const seedText = normalizeName(value);
+  if (seedText === state.seedText) return;
+  state.seedText = seedText;
+  els.seedInput.value = seedText;
+  state.results = [];
+  state.lastRunMeta = null;
+  els.statusText.textContent = DEFAULT_STATUS;
+  renderResults();
+  renderRequiredTrades();
+  renderLotteryTransparency();
+  renderAuditPanel();
+  renderSteps();
+  renderBracket();
+  persistState();
+}
+
+/** Refresh season-derived flags in place so a year input blur cannot swallow a card button click. */
+function updateSeasonYear(value) {
+  if (state.isRunning) return;
+  const year = lotteryHistory.sanitizeYear(value);
+  if (year === null) {
+    showToast("Season year must be a 4-digit year.");
+    els.seasonYearInput.value = String(state.seasonYear);
+    return;
+  }
+  if (year === state.seasonYear) return;
+  state.seasonYear = year;
+  state.manualProtectionYear = null;
+  els.seasonYearInput.value = String(year);
+  const protection = getProtection();
+  const byId = new Map(protection.teams.map((team) => [team.id, team]));
+  [els.teamTableBody, els.mobileTeamList].filter(Boolean).forEach((container) => {
+    [...container.children].forEach((row) => {
+      const team = byId.get(row.dataset.teamId);
+      if (!team) return;
+      [[".previous-top-three", "previousTopThree"], [".previous-number-one", "previousNumberOne"]]
+        .forEach(([selector, flag]) => {
+          const checkbox = row.querySelector(selector);
+          if (!checkbox) return;
+          checkbox.checked = Boolean(team[flag]);
+          checkbox.disabled = isLocked() || protection.automatic || hasProtectionOverride(flag);
+        });
+    });
+  });
+  renderProtection();
+  renderFlagAudit();
+  renderLotteryTransparency();
+  renderAuditPanel();
+  persistState();
+}
+
 els.addTeamBtn.addEventListener("click", () => {
   addTeam(els.teamNameInput.value, els.pickOwnerInput.value);
   els.teamNameInput.value = "";
@@ -2184,7 +2784,7 @@ els.loadDemoBtn.addEventListener("click", loadDemo);
 els.loadAllNflBtn.addEventListener("click", loadAllNflTeams);
 els.resetBtn.addEventListener("click", resetApp);
 els.startLotteryBtn.addEventListener("click", startLottery);
-els.finalizeSeasonBtn.addEventListener("click", finalizeSeason);
+els.finalizeSeasonBtn.addEventListener("click", openFinalizeReview);
 els.generateTradesBtn.addEventListener("click", generateTradesFromResults);
 els.copyLotteryAnnouncementBtn.addEventListener("click", copyDiscordResults);
 els.copySeasonRecapBtn.addEventListener("click", copySeasonRecap);
@@ -2205,6 +2805,36 @@ els.historyYearSelect.addEventListener("change", () => {
 els.deleteHistoryYearBtn.addEventListener("click", deleteSelectedHistoryYear);
 els.exportHistoryBtn.addEventListener("click", exportLotteryHistory);
 els.importHistoryBtn.addEventListener("click", importLotteryHistory);
+const enhancementActions = {
+  undoTradeBtn: undoLastTrade,
+  exportTradesCsvBtn: () => downloadTextFile("flockville-trades.csv", lotteryTools.tradesCsv(state.trades), "text/csv"),
+  exportTradesTableBtn: exportTradesTable,
+  confirmFinalizeBtn: confirmFinalizeReview,
+  cancelFinalizeBtn: () => { state.finalizeDraft = null; closeDialog(els.finalizeDialog); },
+  dryRunBtn: () => createDryRun(),
+  saveDryRunBtn: saveDryRun,
+  discardDryRunBtn: () => { state.dryRun = null; renderDryRun(); },
+  exportDryRunBtn: exportDryRun,
+  generateBracketBtn: generateBracket,
+  exportBracketCsvBtn: () => {
+    if (state.bracket) downloadTextFile("flockville-playoffs.csv", lotteryTools.bracketCsv(state.bracket), "text/csv");
+  },
+  exportBracketTextBtn: () => {
+    if (state.bracket) downloadTextFile("flockville-playoffs.txt", lotteryTools.bracketText(state.bracket));
+  },
+  overrideNumberOneBtn: () => openFlagOverride("previousNumberOne"),
+  overrideTopThreeBtn: () => openFlagOverride("previousTopThree"),
+  saveFlagOverrideBtn: saveFlagOverride,
+  cancelFlagOverrideBtn: () => { state.editingProtectionFlag = ""; closeDialog(els.flagOverrideDialog); },
+  clearProtectionOverrideBtn: clearProtectionOverrides,
+  previewRecoveryBtn: previewRecovery,
+  mergeRecoveryBtn: mergeRecovery,
+  archiveHistoryYearBtn: archiveSelectedHistoryYear,
+};
+Object.entries(enhancementActions).forEach(([id, action]) => els[id]?.addEventListener("click", action));
+els.showArchivedToggle?.addEventListener("change", renderLotteryHistory);
+els.finalizeDialog?.addEventListener("cancel", () => { state.finalizeDraft = null; });
+els.flagOverrideDialog?.addEventListener("cancel", () => { state.editingProtectionFlag = ""; });
 document.getElementById("newHistoryBtn").addEventListener("click", () => openHistoryEditor());
 document.getElementById("editHistoryBtn").addEventListener("click", () => openHistoryEditor(state.lotteryHistory[state.selectedHistoryYear]));
 document.getElementById("addHistoryPickBtn").addEventListener("click", () => addHistoryRow());
@@ -2239,15 +2869,7 @@ document.getElementById("manualProtectionToggle").addEventListener("change", (ev
   render();
 });
 els.seasonYearInput.addEventListener("change", () => {
-  if (state.isRunning) return;
-  const year = lotteryHistory.sanitizeYear(els.seasonYearInput.value);
-  if (year === null) {
-    showToast("Season year must be a 4-digit year.");
-  } else {
-    if (state.seasonYear !== year) state.manualProtectionYear = null;
-    state.seasonYear = year;
-  }
-  render();
+  updateSeasonYear(els.seasonYearInput.value);
 });
 
 els.setupLockBtn.addEventListener("click", () => {
@@ -2271,11 +2893,7 @@ els.seedEnabledToggle.addEventListener("change", () => {
 });
 
 els.seedInput.addEventListener("change", () => {
-  if (state.isRunning) return;
-  state.seedText = normalizeName(els.seedInput.value);
-  state.results = [];
-  state.lastRunMeta = null;
-  render();
+  updateSeedText(els.seedInput.value);
 });
 
 restoreStateFromStorage();

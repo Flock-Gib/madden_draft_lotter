@@ -29,10 +29,15 @@ A static web application for running the Flockville Madden League draft lottery.
 - Draw audit metadata panel
 - Mobile-friendly layout
 - No backend or database required
+- One-step trade undo, CSV and table exports, and required-trade review before finalizing
+- Isolated dry-run previews with explicit save, discard, and export
+- Playoff brackets for 2–64 teams with byes and CSV/text exports
+- Independent season-scoped protection overrides, archive/restore for history years, and preview-first recovery
+- Accessible glossary, text walkthrough, and editable mobile team cards
 
 ## Run Locally
 
-Open `index.html` directly in a browser, or use a small local server:
+Use a small local server (Python 3):
 
 ```bash
 python -m http.server 8000
@@ -43,6 +48,8 @@ Then visit:
 ```text
 http://localhost:8000
 ```
+
+Opening `index.html` directly may allow basic use, but use **HTTPS or localhost** for reliable Web Crypto support. Every JSON export generates a SHA-256 checksum. If Web Crypto is unavailable, export fails with an explicit error rather than producing unchecked JSON.
 
 ## Publish with GitHub Pages
 
@@ -102,6 +109,25 @@ Before the lottery, Pick #N belongs to whoever owns the Nth-worst team's pick (M
 
 Click **Generate Trades from Results** to add these swaps to the Trade List Builder as **Auto-generated** entries. Clicking it again skips swaps that are already in the list. You can edit or remove auto-generated trades just like manual ones.
 
+### Undo and trade exports
+
+**Undo last trade** removes only the newest trade. After generating a batch, it removes one trade, not the whole batch. It is disabled after use until another trade is added. It does not undo edits, deletions, setup changes, draws, imports, or finalization, and is not an unlimited undo history. **Export Trades CSV** downloads the list for a spreadsheet; **Copy Trades Table** copies a tabular version, with a text-download fallback if clipboard access is unavailable. Existing Discord exports remain available.
+
+**Finalize Season** opens a confirmation dialog showing staged trades. Review or edit their From/To teams, assets, and notes, or remove entries before confirming. **Cancel** or Escape discards staged edits without changing the live list or finalizing. Confirmation saves the reviewed trade list, archives the season, and advances its year; it never executes trades inside Madden.
+
+## Dry Run
+
+1. Review live setup, season, protections, and rules, then click **Dry Run**.
+2. Inspect the preview results and swaps, both marked **DRY RUN — not saved**.
+3. **Export Dry Run** shares the preview without saving it. **Discard Preview** removes it.
+4. To retain it, enter a **new unique season year**, different from the simulated year and every saved year, then select **Save Dry Run** and confirm. The simulated year and already-saved years are rejected; this workflow never replaces them.
+
+Preview state is isolated: running or exporting a dry run does not overwrite live results, mutate the trade list, or automatically add a history record. A preview is not a finalized season and does not persist as an unsaved preview through reload. Save a wanted result explicitly.
+
+## Playoff Brackets
+
+Select **Playoff teams** (2–64, default 8), then **Generate Bracket** from the available results. Seeds follow overall pick order starting at Pick #1; non-power-of-two fields, including 6 or 12 teams, receive byes protecting the highest seeds. **Export Bracket CSV** and **Export Bracket Text** share the generated schedule. If the requested field exceeds the result count, the generator cycles the sorted results starting at Pick #1 again: seed numbers remain distinct, but team, owner, and pick can repeat. These repeated entries are placeholders, not distinct qualifiers; review the field before using it. It does not invent teams or simulate winners. Bracket rounds wrap or scroll on narrow screens, so large fields may require horizontal scrolling.
+
 ## Past Lotteries (History by Year)
 
 - Each completed lottery is saved automatically under its season year. The saved record includes the date run, final draft order (with pre-lottery slot and movement), odds used, rule settings, seed, and required trades.
@@ -110,6 +136,19 @@ Click **Generate Trades from Results** to add these swaps to the Trade List Buil
 - **Export History** downloads all saved years as JSON. **Import History** accepts a history export or a full app export, merges it in, and asks before replacing years you already have.
 - History is stored in its own localStorage key (`flockvilleDraftLotteryHistory`), so **Reset** does not delete it.
 - **Finalize Season** archives the live draw using its recorded year (not a subsequently selected year) and advances to the following season. Protections already come from Past Lotteries; finalizing a historical draw is not necessary. Legacy live results without a verified year must be assigned through the history editor.
+- **Archive This Year** hides a record from the default year list without deleting it. Enable **Show archived years** to view it and restore it using the archive action. Archived records still supply exact-prior-year protection and remain in backups.
+
+### Independent protection overrides
+
+**Protection Flag Sources**, below Active Lottery Rules, explains the source of Previous #1 and Previous Top 3 separately. **Override Previous #1** or **Override Previous Top 3** opens a team-selection dialog for only that flag. Select original entrants and save; cancellation leaves both sources unchanged. The other flag continues using its existing source. **Clear Protection Overrides** resumes automatic sourcing where the exact prior year exists.
+
+Per-flag overrides apply only to their recorded season and do not edit history or pick ownership. Selecting another year makes them inactive; returning to their year reuses them until you clear the overrides. The older full manual-checkbox fallback is cleared when the selected year changes and remains useful when prior-year history is missing; review both flag columns explicitly rather than assuming absent history means no protections.
+
+### Explicit recovery
+
+In **Recover Saved History**, paste a supported history JSON backup or choose a JSON file, click **Preview Recovery**, inspect the years and warnings, and then click **Merge Recovery**. Previewing does not modify saved records. Merging is explicit and asks before replacing conflicting years; live setup/results are not silently replaced. Recovery uses supplied records only: it cannot retrieve unsaved draws, infer actual years, or reconstruct screenshots.
+
+All JSON exports include a **SHA-256 checksum** generated with Web Crypto, which requires a supported secure context such as **HTTPS or localhost**. If Web Crypto is unavailable, the app reports an explicit export error; it does not silently omit the checksum. A checksum mismatch warns that content may have changed or been damaged; review the source before deciding to import. A checksum is an integrity aid, not proof of authorship or a security signature. Older compatible backups without checksum metadata remain usable. Keep independent exported backups: browser-local storage can be cleared and is not server-synced.
 
 ## Discord Exports
 
@@ -170,15 +209,17 @@ Change any setting in the **Lottery Settings** panel. The app automatically take
 
 No manual action is required to create a rule version — it happens automatically on every settings change.
 
-### Rule Changelog
+### Rule Versions
 
-The **Rule Changelog** section lists all prior rule versions, most recent first. Each entry shows:
+The **Rule Versions** section lists the active and prior versions, most recent first. Each entry shows:
 
 - When the version was replaced (i.e., when the next version took effect).
 - An optional description of the change (auto-generated for reset events).
 - The rule settings that were in effect during that period.
 
 Up to 50 rule versions are retained.
+
+Use a version's **Restore** action to apply its settings as a new active version. Restoring appends a snapshot rather than deleting intervening versions or rewriting the rules linked to old draws. Review protections and odds before the next draw.
 
 ### Linking History to Rules
 
@@ -193,7 +234,7 @@ When a season is finalized, the active rule version ID is stored alongside the s
 
 ### Schema version
 
-The localStorage schema remains **version 3**, with additive manual-history metadata and a season-scoped manual protection override. Older saves (v1–v2) are accepted — `ruleHistory` defaults to an empty array and an initial snapshot is taken from the restored settings. Unassigned legacy season years are never inferred.
+The localStorage schema remains **version 3**, with additive history, archive, and season-scoped protection metadata. Older saves (v1–v2) are accepted — `ruleHistory` defaults to an empty array and an initial snapshot is taken from the restored settings. Unassigned legacy season years are never inferred.
 
 ## Import / Export JSON
 
@@ -210,12 +251,21 @@ The localStorage schema remains **version 3**, with additive manual-history meta
 
 ## Validation
 
-The app has no build step. Run the Node tests below and verify the UI manually using the following checklist:
+The app has no build step. From the **repository root**, install the test dependencies and Chromium, then run the Node and browser checks:
+
+```bash
+npm ci
+npx playwright install chromium
+npm test
+npm run test:browser
+```
+
+On Linux, use `npx playwright install --with-deps chromium` if browser system dependencies are missing. Python 3 is required for the browser suite's configured static web server. Playwright runs desktop (1280px) and mobile (390px) projects. The Node baseline can also run directly with `node --test flockville-draft-lottery/*.test.js`. Verify the UI manually using the following checklist:
 
 - New lottery draws are recorded in history after **Finalize Season**.
 - The full draw order expands correctly per season entry.
 - The "Rules" line on each season entry matches the settings that were in effect.
-- Changing any setting in the Settings panel creates a new entry in **Rule Changelog**.
+- Changing any setting in the Settings panel creates a new entry in **Rule Versions**; restoring an old version appends a new active version.
 - **Active Lottery Rules** always reflects the current settings.
 - Loading an older JSON export (without `ruleHistory`) continues to work.
 - Refreshing the page restores all data including rule history.
@@ -228,6 +278,15 @@ The app has no build step. Run the Node tests below and verify the UI manually u
 - **Copy Announcement** on each season card copies that season's results.
 - **Copy All Season History** copies all seasons in chronological order.
 - Clipboard copy actions show a toast on success and a fallback message if clipboard access is blocked.
+- **Undo last trade** removes only the newest trade (one from a generated batch), then disables until a new addition; it does not undo edits or deletions. CSV and table exports preserve order and notes.
+- Finalization cancellation leaves history and season untouched; confirmation shows the required swaps.
+- Dry-run preview/export/discard leave live state untouched; saving requires a new unique year and confirmation. The simulated year and already-saved years are rejected, not replaced.
+- Brackets support byes and large fields; narrow layouts wrap or scroll without clipping controls.
+- At widths below 768px, editable team cards replace the setup table; controls have at least 44px touch targets.
+- Archive/restore does not remove protection data; independent overrides affect only the selected flag and season.
+- Recovery preview is read-only; merge is explicit; checksum warnings are visible.
+- All JSON exports include SHA-256 checksums; unavailable Web Crypto causes an explicit export error. Verify with HTTPS or localhost.
+- The glossary opens from How It Works, is keyboard accessible, and closes with Escape or its Close button. The text walkthrough describes all workflows without external media.
 
 ```bash
 # Syntax check
