@@ -14,7 +14,9 @@ A static web application for running the Flockville Madden League draft lottery.
 - Discord-ready results
 - Lottery transparency panel with team-by-team balls, odds %, and tier subtotals
 - Trade list builder with Discord-ready copy export
-- **Auto-generated trades** — one click generates trade entries for every pick where ownership differs from the lottery team
+- **Required trades** — after each draw the app lists the minimal set of pick swaps needed to turn the pre-lottery order into the lottery order; one click adds them to the trade list
+- **Past Lotteries** — every completed lottery is saved by season year (date run, final order, odds, required trades) with view/delete per year and history JSON export/import
+- **Guided layout** — header navigation (Lottery / Results / History / How it works), a step-by-step flow tracker, a per-team odds table, and result cards showing pre-lottery slot and movement
 - **Enhanced trade cards** — each card shows from/to teams, assets, notes, timestamp, and manual/auto-generated badge
 - **Lottery history** — full draw order per finalized season, linked to the rule version in effect
 - **Season Discord export** — copy any individual season as a Discord announcement; copy all seasons at once
@@ -65,16 +67,33 @@ Example:
 - The Bears' lottery entry wins Pick #1.
 - Baltimore receives Pick #1.
 
-## Auto-Generated Trades
+## Using the App
 
-After running the lottery, click **Generate Trades from Results** in the draw panel. The app inspects every result where the pick owner differs from the lottery team and creates a trade entry automatically:
+1. **Enter teams & standings** — add non-playoff teams worst-to-best and set the pick owner for any traded pick.
+2. **Review odds** — the odds table shows each team's pre-lottery slot, pick owner, balls, and chance on the first draw. Lock setup when it looks right.
+3. **Run the lottery** — set the **Season year** and click **Start Lottery**. If that year is already saved, you are asked before it is replaced.
+4. **View results & trades** — result cards show the pick, team, owner, pre-lottery slot, and movement (▲ up / ▼ down). The required trades are listed underneath.
+5. **Saved to history** — the finished lottery is saved automatically under **Past Lotteries**.
 
-- **From team** — the team that gave up the pick (original lottery entrant).
-- **To team** — the current pick owner who will receive the selection.
-- **Asset** — labeled `Pick #N (from lottery draw)`.
-- **Notes** — marked *Auto-generated from lottery results*.
+## Required Trades
 
-Auto-generated trades are labeled with an **Auto-generated** badge in the trade card. Duplicate entries are skipped if the same traded pick already has an auto-generated trade. You can edit or remove auto-generated trades just like manual ones.
+Before the lottery, Pick #N belongs to whoever owns the Nth-worst team's pick (Madden's default draft order). After the draw, the app computes the pick swaps needed so that every pick ends up with the team the lottery assigned it to (logic in `lottery-trades.js`):
+
+- Trades are generated for **every** pick that has to move, not only for picks that were traded before the lottery.
+- Swaps are made between the **current owners**. For example, if Baltimore owns the Bears' pick, Baltimore makes the trade.
+- The fewest swaps are used: each cycle of moves of length k needs k − 1 swaps. Picks that don't move are skipped, and so are swaps between two picks held by the same owner.
+- Each trade reads `Team A sends Pick #X to Team B for Pick #Y`. Run them in the order listed.
+
+Click **Generate Trades from Results** to add these swaps to the Trade List Builder as **Auto-generated** entries. Clicking it again skips swaps that are already in the list. You can edit or remove auto-generated trades just like manual ones.
+
+## Past Lotteries (History by Year)
+
+- Each completed lottery is saved automatically under its season year. The saved record includes the date run, final draft order (with pre-lottery slot and movement), odds used, rule settings, seed, and required trades.
+- Running a new year never overwrites other years. Re-running a year that is already saved asks for confirmation first.
+- Pick a year in the **Past Lotteries** dropdown to view its full results and trades. **Delete This Year** removes one saved year after you confirm.
+- **Export History** downloads all saved years as JSON. **Import History** accepts a history export or a full app export, merges it in, and asks before replacing years you already have.
+- History is stored in its own localStorage key (`flockvilleDraftLotteryHistory`), so **Reset** does not delete it.
+- **Finalize Season** still archives the season for cooldown flags (see *Finalized Seasons*) and advances the season year by one.
 
 ## Discord Exports
 
@@ -107,9 +126,9 @@ Click **Copy All Season History** in the Export Results section. Copies all fina
    - Only Pick #1 is marked `previousNumberOne = true`.
    - Results are archived into lottery history with the full draw order and the active rule version at finalization time.
 
-## Lottery History
+## Finalized Seasons
 
-The **Lottery History** section (under the draw panel) shows every finalized season:
+The **Finalized Seasons** section (under Past Lotteries) shows every season archived with **Finalize Season**:
 
 - **#1 pick** and **Top 3** summary.
 - **Full draw order** — click *Full draw order* to expand all picks with pick ownership details.
@@ -160,9 +179,10 @@ The localStorage schema is currently at **version 3**. Older saves (v1–v2) are
 
 ## Import / Export JSON
 
-- **Download JSON** exports current setup/results/history, rule history, and metadata.
+- **Download JSON** exports current setup/results/history, rule history, Past Lotteries, and metadata.
 - **Import JSON** restores app state from prior export files.
 - Older exports without `ruleHistory` are still accepted; a rule snapshot is taken from the imported settings automatically.
+- Past Lotteries in an imported file are merged into your saved history (you are asked before any saved year is replaced).
 
 ## Seeded Mode (Optional)
 
@@ -172,7 +192,7 @@ The localStorage schema is currently at **version 3**. Older saves (v1–v2) are
 
 ## Validation
 
-The app has no automated test runner. Verify manually using the following checklist:
+The app has no build step. Run the Node tests below and verify the UI manually using the following checklist:
 
 - New lottery draws are recorded in history after **Finalize Season**.
 - The full draw order expands correctly per season entry.
@@ -181,7 +201,9 @@ The app has no automated test runner. Verify manually using the following checkl
 - **Active Lottery Rules** always reflects the current settings.
 - Loading an older JSON export (without `ruleHistory`) continues to work.
 - Refreshing the page restores all data including rule history.
-- **Generate Trades from Results** creates trade entries for every pick where owner ≠ team, and skips duplicates on repeat clicks.
+- Completing a lottery saves it under **Past Lotteries** for the selected season year. Re-running that year asks before replacing it.
+- Deleting a year removes only that year. Export History followed by Import History restores it.
+- The required trades turn the pre-lottery order into the lottery order. **Generate Trades from Results** adds them once and skips duplicates on repeat clicks.
 - Auto-generated trades show the **Auto-generated** badge; manually added trades show the **Manual** badge.
 - **Copy Lottery Announcement** copies the current results in Discord format.
 - **Copy Season Recap** copies the latest finalized season announcement.
@@ -193,6 +215,6 @@ The app has no automated test runner. Verify manually using the following checkl
 # Syntax check
 node --check flockville-draft-lottery/app.js
 
-# Targeted tie-break ordering tests
-node --test flockville-draft-lottery/lottery-order.test.js
+# Targeted tests (tie-break ordering, required trades, history)
+node --test flockville-draft-lottery/lottery-order.test.js flockville-draft-lottery/lottery-trades.test.js flockville-draft-lottery/lottery-history.test.js
 ```
