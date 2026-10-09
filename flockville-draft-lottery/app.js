@@ -58,6 +58,9 @@ const state = {
   seasonYear: new Date().getFullYear(),
   lotteryHistory: {},
   selectedHistoryYear: "",
+  manualProtectionYear: null,
+  editingHistoryRecord: null,
+  importedSeasonCandidates: [],
   isRunning: false,
   editingTradeId: "",
 };
@@ -377,15 +380,17 @@ function sanitizeImportedPayload(payload) {
 
   return {
     teams: payloadTeams,
-    results: sanitizeResults(payload.results, payloadTeams),
+    results: payload.lastRunMeta?.completed === false ? [] : sanitizeResults(payload.results, payloadTeams),
     trades: sanitizeTrades(payload.trades),
     seasonHistory: sanitizeSeasonHistory(payload.seasonHistory),
     ruleHistory: sanitizeRuleHistory(payload.ruleHistory),
     setupLocked: Boolean(payload.setupLocked),
     seedEnabled: Boolean(payload.seedEnabled),
     seedText: normalizeName(payload.seedText),
-    lastRunMeta: payload.lastRunMeta && typeof payload.lastRunMeta === "object" ? payload.lastRunMeta : null,
+    lastRunMeta: payload.lastRunMeta && typeof payload.lastRunMeta === "object" &&
+      payload.lastRunMeta.completed !== false ? payload.lastRunMeta : null,
     seasonYear: lotteryHistory.sanitizeYear(payload.seasonYear) ?? new Date().getFullYear(),
+    manualProtectionYear: lotteryHistory.sanitizeYear(payload.manualProtectionYear),
     lotteryHistory: lotteryHistory.extractHistoryFromPayload(payload),
     settings,
   };
@@ -407,6 +412,7 @@ function persistState() {
       seedText: state.seedText,
       lastRunMeta: state.lastRunMeta,
       seasonYear: state.seasonYear,
+      manualProtectionYear: state.manualProtectionYear,
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   } catch {
@@ -469,8 +475,12 @@ function restoreStateFromStorage() {
     state.seedText = restored.seedText;
     state.lastRunMeta = restored.lastRunMeta;
     state.seasonYear = restored.seasonYear;
+    state.manualProtectionYear = restored.manualProtectionYear;
 
     applySettingsToUi(restored.settings);
+    if (parsed.lastRunMeta?.completed === false) {
+      showToast("The previous draw was interrupted. Partial live results were discarded; saved history is unchanged.");
+    }
   } catch {
     showToast("Saved data was corrupted. Loaded defaults instead.");
   }
@@ -601,7 +611,8 @@ function renderTeams() {
   els.teamTableBody.innerHTML = "";
   const locked = isLocked();
 
-  state.teams.forEach((team, index) => {
+  const protection = getProtection();
+  protection.teams.forEach((team, index) => {
     const row = document.createElement("tr");
 
     row.innerHTML = `
@@ -613,8 +624,8 @@ function renderTeams() {
       <td><select class="team-name-edit" ${locked ? "disabled" : ""}></select></td>
       <td><input class="owner-edit" value="${escapeHtml(team.owner)}" ${locked ? "disabled" : ""} /></td>
       <td><strong>${getBallCount(index)}</strong></td>
-      <td><input class="inline-check previous-top-three" type="checkbox" ${team.previousTopThree ? "checked" : ""} ${locked ? "disabled" : ""} /></td>
-      <td><input class="inline-check previous-number-one" type="checkbox" ${team.previousNumberOne ? "checked" : ""} ${locked ? "disabled" : ""} /></td>
+      <td><input aria-label="${escapeHtml(team.name)} previous top three" class="inline-check previous-top-three" type="checkbox" ${team.previousTopThree ? "checked" : ""} ${locked || protection.automatic ? "disabled" : ""} /></td>
+      <td><input aria-label="${escapeHtml(team.name)} previous number one" class="inline-check previous-number-one" type="checkbox" ${team.previousNumberOne ? "checked" : ""} ${locked || protection.automatic ? "disabled" : ""} /></td>
       <td><button class="remove-btn remove-team" ${locked ? "disabled" : ""}>Remove</button></td>
     `;
 
@@ -653,8 +664,10 @@ function renderTeams() {
         return;
       }
 
-      team.name = newName;
-      if (team.owner === oldName) team.owner = newName;
+      const liveTeam = state.teams.find((entry) => entry.id === team.id);
+      if (!liveTeam) return;
+      liveTeam.name = newName;
+      if (liveTeam.owner === oldName) liveTeam.owner = newName;
       state.results = [];
       state.lastRunMeta = null;
       render();
@@ -769,10 +782,14 @@ function renderRequiredTrades() {
     return;
   }
 
-  els.requiredTradesList.innerHTML = buildRequiredTradesMarkup(
-    getRequiredTrades(),
-    "No trades needed — every pick is already held by the team the lottery assigned it to."
-  );
+  try {
+    els.requiredTradesList.innerHTML = buildRequiredTradesMarkup(
+      getRequiredTrades(),
+      "No trades needed — every pick is already held by the team the lottery assigned it to."
+    );
+  } catch (error) {
+    els.requiredTradesList.innerHTML = `<p class="helper-text">Cannot calculate trades: ${escapeHtml(error.message)}</p>`;
+  }
 }
 
 function getBallGroupLabel(ballCount) {
@@ -782,10 +799,13 @@ function getBallGroupLabel(ballCount) {
 function buildLotteryTransparencyData() {
   const entries = buildLotteryEntries();
   const totalBalls = entries.reduce((sum, entry) => sum + entry.balls, 0);
+  const eligibleBalls = entries.filter((entry) => isEligibleForPick(entry, 1, entries))
+    .reduce((sum, entry) => sum + entry.balls, 0);
   const grouped = new Map();
 
   entries.forEach((entry) => {
-    const chance = totalBalls ? entry.balls / totalBalls : 0;
+    const chance = eligibleBalls && isEligibleForPick(entry, 1, entries) ? entry.balls / eligibleBalls : 0;
+    entry.percent = chance * 100;
     const key = String(entry.balls);
     const existing = grouped.get(key) || {
       label: getBallGroupLabel(entry.balls),
@@ -806,11 +826,12 @@ function buildLotteryTransparencyData() {
     grouped.set(key, existing);
   });
 
-  const totalPercent = entries.reduce((sum, entry) => sum + (totalBalls ? (entry.balls / totalBalls) * 100 : 0), 0);
+  const totalPercent = entries.reduce((sum, entry) => sum + entry.percent, 0);
 
   return {
     entries,
     totalBalls,
+    eligibleBalls,
     totalPercent,
     groups: [...grouped.values()],
   };
@@ -857,7 +878,7 @@ function renderLotteryTransparency() {
             <th>Team</th>
             <th title="The team that currently owns this pick. It receives whatever pick this entry wins.">Pick owner</th>
             <th title="Lottery balls: 3 for the bottom four, 2 for the next four, 1 for everyone else.">Balls</th>
-            <th title="Share of all balls = chance of winning the first draw, before cooldown rules remove ineligible teams.">Chance (first draw)</th>
+            <th title="Chance of winning #1 after enabled protections remove ineligible entrants.">Chance (first draw)</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -866,6 +887,7 @@ function renderLotteryTransparency() {
     <div class="odds-totals">
       ${groupSummary}
       <div class="audit-row"><strong>Total balls:</strong> <span>${data.totalBalls}</span></div>
+      <div class="audit-row"><strong>Eligible balls for #1:</strong> <span>${data.eligibleBalls}</span></div>
       <div class="audit-row"><strong>Sum of displayed chances:</strong> <span>${data.totalPercent.toFixed(1)}%</span></div>
     </div>
   `;
@@ -978,8 +1000,8 @@ function buildHistoryDetailMarkup(record) {
           <td>${entry.slot ? `#${entry.slot}` : "—"}</td>
           <td>${escapeHtml(entry.team)}</td>
           <td>${entry.owner && entry.owner !== entry.team ? escapeHtml(entry.owner) : '<span class="muted-text">Same team</span>'}</td>
-          <td>${entry.balls}</td>
-          <td>${entry.percent.toFixed(1)}%</td>
+          <td>${entry.balls ?? "Unknown"}</td>
+          <td>${entry.percent === null ? "Unknown" : `${entry.percent.toFixed(1)}%`}</td>
         </tr>
       `
     )
@@ -988,9 +1010,10 @@ function buildHistoryDetailMarkup(record) {
   return `
     <div class="audit-summary">
       <div class="audit-row"><strong>Season:</strong> <span>${record.year}</span></div>
-      <div class="audit-row"><strong>Lottery run:</strong> <span>${escapeHtml(formatTime(record.runAt))}</span></div>
+      <div class="audit-row"><strong>Source:</strong> <span>${record.source === "manual" ? "Manually entered / corrected" : "Saved draw"} · ${record.completeness === "top-three" ? "Partial top-three only" : "Complete order"}</span></div>
+      <div class="audit-row"><strong>Lottery run:</strong> <span>${record.runAt ? escapeHtml(formatTime(record.runAt)) : "Unknown — not rerun"}</span></div>
       <div class="audit-row"><strong>#1 pick:</strong> <span>${escapeHtml(record.finalOrder[0]?.team || "Unknown")}</span></div>
-      <div class="audit-row"><strong>Rules:</strong> <span>${escapeHtml(formatRuleSettings(record.settings))}</span></div>
+      <div class="audit-row"><strong>Rules:</strong> <span>${record.settings ? escapeHtml(formatRuleSettings(record.settings)) : "Unknown"}</span></div>
       ${record.seed ? `<div class="audit-row"><strong>Seed:</strong> <span>${escapeHtml(record.seed)}</span></div>` : ""}
     </div>
     <h3 class="subheading">Final draft order</h3>
@@ -1003,7 +1026,9 @@ function buildHistoryDetailMarkup(record) {
       </table>
     </div>
     <h3 class="subheading">Required trades (${record.trades.length})</h3>
-    ${buildRequiredTradesMarkup(record.trades, "No trades were needed for this lottery.")}
+    ${record.source === "manual" || record.completeness === "top-three"
+      ? '<p class="helper-text">Trades are not generated from transcribed history. Original standings / trade execution are not established.</p>'
+      : buildRequiredTradesMarkup(record.trades, "No trades were needed for this lottery.")}
     ${oddsRows ? `
       <details class="history-details">
         <summary>Odds used (${record.totalBalls} total balls)</summary>
@@ -1040,6 +1065,93 @@ function renderLotteryHistory() {
   els.historyDetail.innerHTML = record
     ? buildHistoryDetailMarkup(record)
     : '<p class="helper-text">No lotteries saved yet. Every completed lottery is saved here automatically under its season year.</p>';
+  document.getElementById("editHistoryBtn").disabled = !record || state.isRunning;
+  ["newHistoryBtn", "addHistoryPickBtn", "saveManualHistoryBtn", "loadLegacySeasonBtn"].forEach((id) => {
+    document.getElementById(id).disabled = state.isRunning;
+  });
+  const candidates = getLegacyCandidates();
+  document.getElementById("legacySeasonSelect").innerHTML = candidates.length
+    ? candidates.map((season, index) => `<option value="${index}">${season.year || "Unassigned year"} · ${escapeHtml(formatTime(season.finalizedAt))} · ${escapeHtml(season.numberOne)}</option>`).join("")
+    : '<option value="">No older finalized orders</option>';
+  document.getElementById("loadLegacySeasonBtn").disabled = !candidates.length || state.isRunning;
+}
+
+function getProtection() {
+  return lotteryHistory.deriveProtection(state.teams, state.lotteryHistory, state.seasonYear,
+    state.manualProtectionYear === state.seasonYear);
+}
+
+function renderProtection() {
+  const { automatic, priorYear, record } = getProtection();
+  const manual = state.manualProtectionYear === state.seasonYear;
+  const source = document.getElementById("protectionSource");
+  source.textContent = automatic
+    ? `Automatic protections from ${priorYear}${record.completeness === "top-three" ? " (partial top-three record)" : ""}: Top 3 — ${record.finalOrder.filter((pick) => pick.pick <= 3).map((pick) => pick.team).join(", ")}; #1 — ${record.finalOrder[0].team}. Toggles independently control enforcement.`
+    : manual
+      ? `Manual flags enabled for ${state.seasonYear}. Review both checkbox columns; saved ${priorYear} history is overridden.`
+      : `Warning: no usable ${priorYear} history for ${state.seasonYear}. Automatic protection is unavailable. Enter that season's order or explicitly enable manual flags (including confirming none).`;
+  const toggle = document.getElementById("manualProtectionToggle");
+  toggle.checked = manual;
+  toggle.disabled = isLocked();
+}
+
+function getLegacyCandidates() {
+  return [...state.seasonHistory, ...state.importedSeasonCandidates];
+}
+
+function addHistoryRow(pick = {}) {
+  const container = document.getElementById("manualHistoryRows");
+  const row = document.createElement("div");
+  row.className = "manual-history-row";
+  row.innerHTML = `
+    <label>Pick <input class="history-pick" type="number" min="1" step="1" value="${escapeHtml(pick.pick ?? container.children.length + 1)}" /></label>
+    <label>Original team <input class="history-team" list="historyTeamNames" value="${escapeHtml(pick.team || "")}" /></label>
+    <label>Owner (optional) <input class="history-owner" list="historyTeamNames" value="${escapeHtml(pick.owner || "")}" /></label>
+    <button class="button secondary" type="button">Remove Pick</button>`;
+  row.querySelector("button").addEventListener("click", () => row.remove());
+  container.appendChild(row);
+}
+
+function openHistoryEditor(record = null) {
+  if (state.isRunning) return;
+  state.editingHistoryRecord = record;
+  document.getElementById("manualHistoryEditor").open = true;
+  document.getElementById("manualHistoryYear").value = record?.year || "";
+  document.getElementById("manualHistoryCompleteness").value = record?.completeness || "complete";
+  document.getElementById("manualHistoryRows").innerHTML = "";
+  document.getElementById("manualHistoryMessage").textContent = "";
+  document.getElementById("historyTeamNames").innerHTML = [...new Set([...NFL_TEAMS, ...state.teams.map((team) => team.name)])]
+    .map((name) => `<option value="${escapeHtml(name)}"></option>`).join("");
+  (record?.finalOrder || [{ pick: 1 }, { pick: 2 }, { pick: 3 }]).forEach(addHistoryRow);
+  document.getElementById("manualHistoryYear").focus();
+}
+
+function saveManualHistory() {
+  if (state.isRunning) return;
+  const message = document.getElementById("manualHistoryMessage");
+  try {
+    const year = document.getElementById("manualHistoryYear").value;
+    const finalOrder = [...document.querySelectorAll(".manual-history-row")].map((row) => ({
+      pick: row.querySelector(".history-pick").value,
+      team: row.querySelector(".history-team").value,
+      owner: row.querySelector(".history-owner").value,
+    }));
+    const existing = state.editingHistoryRecord
+      ? { ...state.editingHistoryRecord, year: Number(year) } : null;
+    const record = lotteryHistory.createManualRecord({
+      year, finalOrder, completeness: document.getElementById("manualHistoryCompleteness").value,
+    }, existing);
+    const replacing = Boolean(state.lotteryHistory[String(record.year)]);
+    if (!confirm(`${replacing ? "Replace the existing" : "Save the actual"} ${record.year} ${record.completeness === "top-three" ? "partial top-three" : "complete"} order? Check it against your source. Other years and live results are unchanged.`)) return;
+    state.lotteryHistory = lotteryHistory.upsertRecord(state.lotteryHistory, record);
+    state.selectedHistoryYear = String(record.year);
+    persistHistory();
+    state.editingHistoryRecord = record;
+    message.textContent = `Saved ${record.year} as manually entered history. Export History for a backup.`;
+    render();
+  } catch (error) {
+    message.textContent = error.message;
+  }
 }
 
 function getCurrentStep() {
@@ -1145,6 +1257,7 @@ function render() {
   els.seasonYearInput.value = String(state.seasonYear);
   renderOwnerOptions();
   renderTeams();
+  renderProtection();
   renderResults();
   renderLotteryTransparency();
   renderAuditPanel();
@@ -1179,7 +1292,7 @@ function orderLotteryEntries(entries, context = {}) {
 }
 
 function buildLotteryEntries() {
-  const entries = state.teams.map((team, index) => ({
+  const entries = getProtection().teams.map((team, index) => ({
     ...team,
     standingIndex: index,
   }));
@@ -1200,13 +1313,11 @@ function isEligibleForPick(entry, pick, remainingEntries) {
   const noConsecutiveOne = els.consecutiveOneToggle.checked;
 
   if (pick === 1 && noConsecutiveOne && entry.previousNumberOne) {
-    const alternativeExists = remainingEntries.some((team) => !team.previousNumberOne);
-    if (alternativeExists) return false;
+    return false;
   }
 
   if (pick <= 3 && topThreeCooldown && entry.previousTopThree) {
-    const alternativeExists = remainingEntries.some((team) => !team.previousTopThree);
-    if (alternativeExists) return false;
+    return false;
   }
 
   return true;
@@ -1221,29 +1332,21 @@ function applyBottomFourProtection(results, allEntries) {
   const top = results.slice(0, maxProtectedPick);
   const rest = results.slice(maxProtectedPick);
 
-  const protectedInTop = top.filter((r) => protectedIds.has(r.id));
   const protectedInRest = rest.filter((r) => protectedIds.has(r.id));
 
   if (protectedInRest.length === 0) return results;
 
-  const nonProtectedInTop = top.filter((r) => !protectedIds.has(r.id));
-  const newTop = [...protectedInTop, ...protectedInRest];
-
-  while (newTop.length < maxProtectedPick && nonProtectedInTop.length) {
-    newTop.push(nonProtectedInTop.shift());
-  }
-
-  const usedIds = new Set(newTop.map((r) => r.id));
-  const newRest = results.filter((r) => !usedIds.has(r.id));
-
-  const originalIndexById = new Map(results.map((r, i) => [r.id, i]));
-  newTop.forEach((r) => {
-    if (protectedIds.has(r.id) && originalIndexById.get(r.id) > maxProtectedPick - 1) {
-      r.note = "Moved into protected range by Bottom-Four Protection.";
-    }
+  const adjusted = [...results];
+  protectedInRest.forEach((entry) => {
+    const destination = adjusted.findLastIndex((result, index) =>
+      index >= 3 && index < maxProtectedPick && !protectedIds.has(result.id));
+    const source = adjusted.findIndex((result) => result.id === entry.id);
+    if (destination < 0) throw new Error("Bottom-four protection cannot be satisfied.");
+    [adjusted[destination], adjusted[source]] = [adjusted[source], adjusted[destination]];
+    entry.note = "Moved into protected range by Bottom-Four Protection.";
   });
 
-  return [...newTop, ...newRest];
+  return adjusted;
 }
 
 function hashSeed(seedText) {
@@ -1287,8 +1390,8 @@ function runLotteryCalculation(randomFn) {
 
   for (let pick = 1; pick <= lotteryCount; pick += 1) {
     const eligible = remaining.filter((entry) => isEligibleForPick(entry, pick, remaining));
-    const winner = weightedRandomTeam(eligible.length ? eligible : remaining, randomFn);
-    if (!winner) break;
+    const winner = weightedRandomTeam(eligible, randomFn);
+    if (!winner) throw new Error(`No eligible team for Pick #${pick}. Review protection flags or disable the relevant rule explicitly.`);
 
     let note = "";
     if (pick === 4 && winner.previousTopThree && els.topThreeCooldownToggle.checked) {
@@ -1302,14 +1405,18 @@ function runLotteryCalculation(randomFn) {
   const orderedRemaining = orderLotteryEntries(remaining, {
     seed: state.seedEnabled ? state.seedText : "",
   });
-  orderedRemaining.forEach((entry) => {
+  while (orderedRemaining.length) {
+    const pick = selected.length + 1;
+    const index = orderedRemaining.findIndex((entry) => isEligibleForPick(entry, pick, orderedRemaining));
+    if (index < 0) throw new Error(`No eligible team for Pick #${pick}. Review protection flags or disable the relevant rule explicitly.`);
+    const [entry] = orderedRemaining.splice(index, 1);
     selected.push({
       ...entry,
       team: entry.name,
       pick: selected.length + 1,
       note: "Placed by reverse regular-season record.",
     });
-  });
+  }
 
   const adjusted = applyBottomFourProtection(selected, entries);
 
@@ -1324,6 +1431,8 @@ function buildRunMeta(seedUsed = "") {
   const settings = getSettingsFromUi();
   return {
     timestamp: new Date().toISOString(),
+    year: state.seasonYear,
+    completed: false,
     lotteryPickCount: settings.lotteryPickCount,
     toggles: {
       bottomFourProtection: settings.bottomFourProtection,
@@ -1390,6 +1499,7 @@ async function animateLottery(results, runContext) {
 
   els.machineOrb.classList.remove("spinning");
   els.machineText.textContent = "COMPLETE";
+  state.lastRunMeta.completed = true;
   saveLotteryToHistory(results, runContext);
   els.statusText.textContent = `The Flockville Draft Lottery is complete. Results and trades were saved to history for ${runContext.year}.`;
   state.isRunning = false;
@@ -1417,6 +1527,13 @@ function startLottery() {
     return;
   }
   state.seasonYear = year;
+  const protection = getProtection();
+  if (!protection.automatic && state.manualProtectionYear !== year &&
+      (els.topThreeCooldownToggle.checked || els.consecutiveOneToggle.checked)) {
+    render();
+    showToast(`Missing ${year - 1} history. Save that order or explicitly enable and review manual protection flags.`);
+    return;
+  }
 
   if (state.lotteryHistory[String(year)]) {
     const replace = confirm(
@@ -1434,12 +1551,19 @@ function startLottery() {
       team: entry.name,
       owner: entry.owner,
       balls: entry.balls,
-      percent: odds.totalBalls ? (entry.balls / odds.totalBalls) * 100 : 0,
+      percent: entry.percent,
     })),
   };
 
   const { randomFn, seedUsed } = getRandomSource();
-  const results = runLotteryCalculation(randomFn);
+  let results;
+  try {
+    results = runLotteryCalculation(randomFn);
+    getRequiredTrades(results);
+  } catch (error) {
+    showToast(error.message);
+    return;
+  }
   state.lastRunMeta = buildRunMeta(seedUsed);
   animateLottery(results, runContext);
 }
@@ -1498,6 +1622,7 @@ function downloadJson() {
     seasonHistory: state.seasonHistory,
     ruleHistory: state.ruleHistory,
     seasonYear: state.seasonYear,
+    manualProtectionYear: state.manualProtectionYear,
     lotteryHistory: state.lotteryHistory,
   };
 
@@ -1538,15 +1663,18 @@ async function importLotteryHistory() {
   }
 
   try {
-    const incoming = lotteryHistory.extractHistoryFromPayload(JSON.parse(await file.text()));
-    if (!Object.keys(incoming).length) {
-      showToast("No saved lotteries were found in that file.");
+    const payload = JSON.parse(await file.text());
+    const incoming = lotteryHistory.extractHistoryFromPayload(payload);
+    const candidates = sanitizeSeasonHistory(payload.seasonHistory);
+    if (!Object.keys(incoming).length && !candidates.length) {
+      showToast("No saved lotteries or finalized orders were found in that file.");
       return;
     }
 
     const { added, replaced } = mergeImportedHistory(incoming);
+    state.importedSeasonCandidates = candidates;
     render();
-    showToast(`History import complete: ${added} added, ${replaced} replaced.`);
+    showToast(`History import: ${added} added, ${replaced} replaced.${candidates.length ? " Older finalized orders are available for explicit year assignment below." : ""}`);
   } catch {
     showToast("Invalid history file. Please choose a valid export.");
   } finally {
@@ -1583,6 +1711,8 @@ function resetApp() {
   state.seedEnabled = false;
   state.seedText = "";
   state.lastRunMeta = null;
+  state.manualProtectionYear = null;
+  state.importedSeasonCandidates = [];
 
   applySettingsToUi({});
   snapshotRuleVersion("Rules reset to defaults.");
@@ -1672,21 +1802,18 @@ function finalizeSeason() {
     return;
   }
 
-  if (!confirm("Finalize this season? This will archive results and set cooldown flags for next season.")) {
+  const resultYear = lotteryHistory.sanitizeYear(state.lastRunMeta?.year);
+  if (resultYear === null) {
+    showToast("This older live result has no verified season year. Assign its order a year in Past Lotteries instead.");
+    return;
+  }
+  if (!confirm(`Finalize the ${resultYear} draw? This will archive results and advance to ${resultYear + 1}.`)) {
     return;
   }
 
-  const topThreeIds = new Set(state.results.filter((result) => result.pick <= 3).map((result) => result.id));
-  const numberOneId = state.results.find((result) => result.pick === 1)?.id || "";
-
-  state.teams.forEach((team) => {
-    team.previousTopThree = topThreeIds.has(team.id);
-    team.previousNumberOne = team.id === numberOneId;
-  });
-
   state.seasonHistory.unshift({
     id: createId(),
-    year: state.seasonYear,
+    year: resultYear,
     finalizedAt: new Date().toISOString(),
     numberOne: state.results[0]?.team || "Unknown",
     topThree: state.results.slice(0, 3).map((result) => result.team),
@@ -1699,7 +1826,8 @@ function finalizeSeason() {
   state.seasonHistory = state.seasonHistory.slice(0, MAX_SEASON_HISTORY);
   state.results = [];
   state.lastRunMeta = null;
-  state.seasonYear = lotteryHistory.sanitizeYear(state.seasonYear + 1) ?? state.seasonYear;
+  state.seasonYear = lotteryHistory.sanitizeYear(resultYear + 1) ?? resultYear;
+  state.manualProtectionYear = null;
 
   els.machineText.textContent = "READY";
   els.statusText.textContent = `Season finalized. Ready to set up the ${state.seasonYear} draw.`;
@@ -1735,6 +1863,7 @@ async function importJson() {
     state.seedText = restored.seedText;
     state.lastRunMeta = restored.lastRunMeta;
     state.seasonYear = restored.seasonYear;
+    state.manualProtectionYear = restored.manualProtectionYear;
     if (Object.keys(restored.lotteryHistory).length) mergeImportedHistory(restored.lotteryHistory);
 
     applySettingsToUi(restored.settings);
@@ -1885,7 +2014,13 @@ function generateTradesFromResults() {
     return;
   }
 
-  const requiredTrades = getRequiredTrades();
+  let requiredTrades;
+  try {
+    requiredTrades = getRequiredTrades();
+  } catch (error) {
+    showToast(`Cannot generate trades: ${error.message}`);
+    return;
+  }
   if (!requiredTrades.length) {
     showToast("No trades needed. Every pick is already held by the team the lottery assigned it to.");
     return;
@@ -2070,12 +2205,46 @@ els.historyYearSelect.addEventListener("change", () => {
 els.deleteHistoryYearBtn.addEventListener("click", deleteSelectedHistoryYear);
 els.exportHistoryBtn.addEventListener("click", exportLotteryHistory);
 els.importHistoryBtn.addEventListener("click", importLotteryHistory);
+document.getElementById("newHistoryBtn").addEventListener("click", () => openHistoryEditor());
+document.getElementById("editHistoryBtn").addEventListener("click", () => openHistoryEditor(state.lotteryHistory[state.selectedHistoryYear]));
+document.getElementById("addHistoryPickBtn").addEventListener("click", () => addHistoryRow());
+document.getElementById("saveManualHistoryBtn").addEventListener("click", saveManualHistory);
+document.getElementById("cancelManualHistoryBtn").addEventListener("click", () => {
+  state.editingHistoryRecord = null;
+  document.getElementById("manualHistoryEditor").open = false;
+  document.getElementById("manualHistoryRows").innerHTML = "";
+});
+document.getElementById("loadLegacySeasonBtn").addEventListener("click", () => {
+  const season = getLegacyCandidates()[Number(document.getElementById("legacySeasonSelect").value)];
+  if (!season) return;
+  const finalOrder = season.finalOrder.length
+    ? season.finalOrder : season.topThree.map((team, index) => ({ pick: index + 1, team }));
+  if (!finalOrder.length) {
+    showToast("No recoverable order in this archive. Enter the actual results manually.");
+    return;
+  }
+  openHistoryEditor({ year: season.year, finalOrder, source: "manual",
+    completeness: season.finalOrder.length ? "complete" : "top-three",
+    seed: season.seed, runAt: season.runMeta?.timestamp || "",
+    ruleVersionId: season.ruleVersionId,
+    settings: state.ruleHistory.find((rule) => rule.id === season.ruleVersionId)?.settings || null });
+});
+document.getElementById("manualProtectionToggle").addEventListener("change", (event) => {
+  if (isLocked()) return;
+  const protection = getProtection();
+  if (event.target.checked && protection.automatic) {
+    state.teams = protection.teams;
+  }
+  state.manualProtectionYear = event.target.checked ? state.seasonYear : null;
+  render();
+});
 els.seasonYearInput.addEventListener("change", () => {
   if (state.isRunning) return;
   const year = lotteryHistory.sanitizeYear(els.seasonYearInput.value);
   if (year === null) {
     showToast("Season year must be a 4-digit year.");
   } else {
+    if (state.seasonYear !== year) state.manualProtectionYear = null;
     state.seasonYear = year;
   }
   render();

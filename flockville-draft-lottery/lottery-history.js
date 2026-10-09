@@ -20,39 +20,64 @@
   }
 
   function sanitizeYear(value) {
-    const parsed = Number.parseInt(value, 10);
-    if (!Number.isFinite(parsed) || parsed < MIN_YEAR || parsed > MAX_YEAR) return null;
+    if (typeof value !== "number" && (typeof value !== "string" || !/^\d{4}$/.test(value.trim()))) return null;
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed < MIN_YEAR || parsed > MAX_YEAR) return null;
     return parsed;
   }
 
-  function sanitizeOrderEntry(entry) {
+  function positiveInteger(value) {
+    if (typeof value !== "number" && (typeof value !== "string" || !/^\d+$/.test(value.trim()))) return null;
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+  }
+
+  function optionalNumber(value) {
+    return value === null || value === undefined || (typeof value === "string" && !value.trim()) ? null : toNumber(value);
+  }
+
+  function sanitizeOrderEntry(entry, manual = false) {
     if (!entry || typeof entry !== "object") return null;
-    const pick = Number.parseInt(entry.pick, 10);
-    const team = normalizeName(entry.team);
-    if (!Number.isFinite(pick) || pick < 1 || !team) return null;
-    const originalSlot = Number.parseInt(entry.originalSlot, 10);
-    const safeOriginal = Number.isFinite(originalSlot) && originalSlot > 0 ? originalSlot : null;
+    const pick = positiveInteger(entry.pick);
+    const team = typeof entry.team === "string" ? entry.team.trim() : "";
+    if (pick === null || !team || (entry.owner != null && typeof entry.owner !== "string")) return null;
+    const safeOriginal = positiveInteger(entry.originalSlot);
     return {
       pick,
       team,
       owner: normalizeName(entry.owner) || team,
       originalSlot: safeOriginal,
-      movement: safeOriginal === null ? 0 : safeOriginal - pick,
-      balls: toNumber(entry.balls, 0),
+      movement: safeOriginal === null ? (manual ? null : 0) : safeOriginal - pick,
+      balls: manual ? optionalNumber(entry.balls) : toNumber(entry.balls, 0),
       note: normalizeName(entry.note),
     };
   }
 
-  function sanitizeOddsEntry(entry) {
+  function sanitizeOrder(order, manual = false) {
+    if (!Array.isArray(order) || !order.length) return null;
+    const entries = Array.from(order, (entry) => sanitizeOrderEntry(entry, manual));
+    if (entries.some((entry) => !entry)) return null;
+    entries.sort((a, b) => a.pick - b.pick);
+    const names = new Set();
+    for (let index = 0; index < entries.length; index += 1) {
+      const entry = entries[index];
+      const name = entry.team.toLowerCase();
+      if (entry.pick !== index + 1 || names.has(name)) return null;
+      names.add(name);
+    }
+    return entries;
+  }
+
+  function sanitizeOddsEntry(entry, manual = false) {
     if (!entry || typeof entry !== "object") return null;
     const team = normalizeName(entry.team);
     if (!team) return null;
     return {
-      slot: toNumber(entry.slot, 0),
+      slot: manual ? optionalNumber(entry.slot) : toNumber(entry.slot, 0),
       team,
       owner: normalizeName(entry.owner) || team,
-      balls: toNumber(entry.balls, 0),
-      percent: toNumber(entry.percent, 0),
+      balls: manual ? optionalNumber(entry.balls) : toNumber(entry.balls, 0),
+      percent: manual ? optionalNumber(entry.percent) : toNumber(entry.percent, 0),
     };
   }
 
@@ -81,22 +106,25 @@
     const year = sanitizeYear(record.year ?? fallbackYear);
     if (year === null) return null;
 
-    const finalOrder = Array.isArray(record.finalOrder)
-      ? record.finalOrder.map(sanitizeOrderEntry).filter(Boolean).sort((a, b) => a.pick - b.pick)
-      : [];
-    if (!finalOrder.length) return null;
+    const manual = record.source === "manual";
+    const completeness = manual ? record.completeness : (record.completeness ?? "complete");
+    if (!["complete", "top-three"].includes(completeness)) return null;
+    const finalOrder = sanitizeOrder(record.finalOrder, manual);
+    if (!finalOrder || (completeness === "top-three" && finalOrder.length !== 3)) return null;
 
     const settings = record.settings && typeof record.settings === "object" ? record.settings : {};
 
     return {
       year,
-      runAt: normalizeName(record.runAt) || normalizeName(record.savedAt) || "",
-      savedAt: normalizeName(record.savedAt) || normalizeName(record.runAt) || "",
+      ...(record.source !== undefined ? { source: record.source } : {}),
+      ...(manual || record.completeness !== undefined ? { completeness } : {}),
+      runAt: normalizeName(record.runAt) || (manual ? "" : normalizeName(record.savedAt)),
+      savedAt: normalizeName(record.savedAt) || (manual ? "" : normalizeName(record.runAt)),
       finalOrder,
-      odds: Array.isArray(record.odds) ? record.odds.map(sanitizeOddsEntry).filter(Boolean) : [],
-      totalBalls: toNumber(record.totalBalls, 0),
+      odds: Array.isArray(record.odds) ? record.odds.map((entry) => sanitizeOddsEntry(entry, manual)).filter(Boolean) : [],
+      totalBalls: manual ? optionalNumber(record.totalBalls) : toNumber(record.totalBalls, 0),
       trades: Array.isArray(record.trades) ? record.trades.map(sanitizeTradeEntry).filter(Boolean) : [],
-      settings: {
+      settings: manual ? (record.settings && typeof record.settings === "object" ? { ...record.settings } : null) : {
         lotteryPickCount: toNumber(settings.lotteryPickCount, 8),
         bottomFourProtection: settings.bottomFourProtection ?? true,
         topThreeCooldown: settings.topThreeCooldown ?? true,
@@ -104,6 +132,66 @@
       },
       seed: normalizeName(record.seed),
       ruleVersionId: normalizeName(record.ruleVersionId),
+    };
+  }
+
+  function createManualRecord({ year, finalOrder, completeness } = {}, existingRecord, savedAt = new Date().toISOString()) {
+    const safeYear = sanitizeYear(year);
+    if (safeYear === null) throw new Error("Year must be an integer from 1000 to 9999.");
+    if (!["complete", "top-three"].includes(completeness)) {
+      throw new Error("Completeness must be complete or top-three.");
+    }
+    const order = sanitizeOrder(finalOrder, true);
+    if (!order) throw new Error("Final order must contain contiguous picks 1 through N and unique, nonempty original team names.");
+    if (completeness === "top-three" && order.length !== 3) {
+      throw new Error("Top-three records must contain exactly three picks.");
+    }
+    const existing = sanitizeRecord(existingRecord);
+    const prior = existing?.year === safeYear ? existing : null;
+    const samePick = (a, b) => a && b && a.pick === b.pick &&
+      a.team.toLowerCase() === b.team.toLowerCase() && a.owner.toLowerCase() === b.owner.toLowerCase();
+    const unchanged = prior && prior.finalOrder.length === order.length &&
+      order.every((entry, index) => samePick(entry, prior.finalOrder[index]));
+    const mergedOrder = order.map((entry, index) => {
+      const previous = prior?.finalOrder[index];
+      return samePick(entry, previous) ? { ...previous, ...entry,
+        originalSlot: previous.originalSlot,
+        movement: previous.movement,
+        balls: previous.balls,
+        note: previous.note,
+      } : entry;
+    });
+    return sanitizeRecord({
+      ...(prior || {}),
+      year: safeYear,
+      source: "manual",
+      completeness,
+      savedAt,
+      finalOrder: mergedOrder,
+      ...(!unchanged ? { odds: [], trades: [], totalBalls: null, seed: "" } : {}),
+    });
+  }
+
+  function deriveProtection(teams, history, year, useManual = false) {
+    const safeYear = sanitizeYear(year);
+    const priorYear = safeYear === null ? null : safeYear - 1;
+    const record = priorYear === null ? null : sanitizeRecord(history?.[String(priorYear)], priorYear);
+    const prior = record?.year === priorYear ? record : null;
+    const automatic = Boolean(prior && !useManual);
+    const picks = new Map(automatic ? prior.finalOrder.map((entry) => [entry.team.toLowerCase(), entry.pick]) : []);
+    return {
+      teams: teams.map((team) => {
+        const clone = { ...team };
+        if (automatic) {
+          const pick = picks.get(normalizeName(team.name).toLowerCase());
+          clone.previousTopThree = pick !== undefined && pick <= 3;
+          clone.previousNumberOne = pick === 1;
+        }
+        return clone;
+      }),
+      priorYear,
+      record: prior,
+      automatic,
     };
   }
 
@@ -125,8 +213,8 @@
 
   function getSortedYears(history) {
     return Object.keys(history || {})
-      .map((year) => Number.parseInt(year, 10))
-      .filter(Number.isFinite)
+      .map(sanitizeYear)
+      .filter((year) => year !== null)
       .sort((a, b) => b - a);
   }
 
@@ -181,6 +269,8 @@
   return {
     HISTORY_EXPORT_TYPE,
     buildHistoryExport,
+    createManualRecord,
+    deriveProtection,
     extractHistoryFromPayload,
     getSortedYears,
     mergeHistory,

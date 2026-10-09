@@ -86,15 +86,86 @@ test("uses minimal swaps (n - cycles) for a larger permutation", () => {
   assertFinalOrder(results, trades);
 });
 
-test("returns no trades for inconsistent data", () => {
-  assert.deepEqual(computeRequiredTrades([{ pick: 1, team: "A", owner: "A" }]), []);
-  assert.deepEqual(
-    computeRequiredTrades([
+test("throws for inconsistent data", () => {
+  assert.throws(() => computeRequiredTrades([{ pick: 1, team: "A", owner: "A" }]), /Invalid lottery results/);
+  assert.throws(
+    () => computeRequiredTrades([
       { pick: 1, team: "A", owner: "A", originalSlot: 1 },
       { pick: 2, team: "B", owner: "B", originalSlot: 3 },
     ]),
-    []
+    /contiguous slots 1\.\.N/
   );
+});
+
+test("empty results return no trades", () => {
+  assert.deepEqual(computeRequiredTrades([]), []);
+});
+
+test("rejects invalid slots, team names, and owners", () => {
+  const valid = { pick: 1, team: "A", originalSlot: 1 };
+  const invalid = [
+    null,
+    {},
+    [null],
+    [{ ...valid, pick: 0 }],
+    [{ ...valid, pick: 1.5 }],
+    [{ ...valid, pick: true }],
+    [{ ...valid, originalSlot: null, standingIndex: 0 }],
+    [{ ...valid, originalSlot: 0, standingIndex: 0 }],
+    [{ pick: 1, team: "A", standingIndex: null }],
+    [{ pick: 1, team: "A", standingIndex: "" }],
+    [{ pick: 1, team: "A", standingIndex: false }],
+    [{ pick: 1, team: "A", standingIndex: -1 }],
+    [{ ...valid, team: " ", owner: "A" }],
+    [{ ...valid, team: {}, owner: "A" }],
+    [{ ...valid, owner: {} }],
+    [{ ...valid, pick: 2, originalSlot: 2 }],
+    [valid, { pick: 1, team: "B", originalSlot: 2 }],
+    [valid, { pick: 2, team: "B", originalSlot: 1 }],
+    [valid, { pick: 2, team: " a ", originalSlot: 2 }],
+    [valid, { pick: 3, team: "B", originalSlot: 2 }],
+  ];
+  invalid.forEach((results) => {
+    assert.throws(() => computeRequiredTrades(results), /Invalid lottery results/);
+  });
+});
+
+test("defaults missing or blank owners to the original team", () => {
+  for (const owner of [undefined, null, "", " "]) {
+    const results = [
+      { pick: 1, team: "B", owner, originalSlot: 2 },
+      { pick: 2, team: "A", owner, originalSlot: 1 },
+    ];
+    const trades = computeRequiredTrades(results);
+    assert.equal(trades.length, 1);
+    assert.equal(trades[0].summary, "B sends Pick #2 to A for Pick #1");
+  }
+});
+
+test("duplicate owners reach the target through current-owner swaps in listed order", () => {
+  let seed = 67890;
+  const rand = () => {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return seed / 2147483648;
+  };
+  for (let run = 0; run < 200; run += 1) {
+    const n = 4 + Math.floor(rand() * 12);
+    const order = Array.from({ length: n }, (_, i) => i + 1);
+    const owners = order.map((slot) => `Owner${slot % 3}`);
+    for (let i = n - 1; i > 0; i -= 1) {
+      const j = Math.floor(rand() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    const results = order.map((originalSlot, index) => ({
+      pick: index + 1,
+      team: `T${originalSlot}`,
+      owner: owners[originalSlot - 1],
+      originalSlot,
+    }));
+    const trades = computeRequiredTrades(results);
+    assertFinalOrder(results, trades);
+    assert.ok(trades.every((trade) => trade.fromTeam !== trade.toTeam));
+  }
 });
 
 test("random permutations always reach the lottery order with n - cycles swaps", () => {
