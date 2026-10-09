@@ -101,6 +101,56 @@
     };
   }
 
+  /** Preserve reviewed app trades without inventing identifiers or pick assets. */
+  function sanitizeReviewedTrade(entry) {
+    if (!entry || typeof entry !== "object") return null;
+    const fromTeam = typeof (entry.fromTeam || entry.from) === "string" ? (entry.fromTeam || entry.from).trim() : "";
+    const toTeam = typeof (entry.toTeam || entry.to) === "string" ? (entry.toTeam || entry.to).trim() : "";
+    const assets = (Array.isArray(entry.assets) ? entry.assets :
+      typeof entry.assets === "string" ? entry.assets.split("\n") : [])
+      .filter((asset) => typeof asset === "string").map((asset) => asset.trim()).filter(Boolean);
+    const notes = typeof entry.notes === "string" ? entry.notes.trim() : "";
+    if (!fromTeam || !toTeam || (!assets.length && !notes)) return null;
+    return {
+      id: typeof entry.id === "string" ? entry.id.trim() : "",
+      fromTeam, toTeam, assets, notes,
+      createdAt: typeof entry.createdAt === "string" ? entry.createdAt.trim() : "",
+      source: entry.source === "auto" ? "auto" : "manual",
+    };
+  }
+
+  /** Copy optional simulation team snapshots with only recognized record metrics. */
+  function sanitizeTeamSnapshot(team) {
+    if (!team || typeof team !== "object" || typeof team.name !== "string" || !team.name.trim()) return null;
+    const name = team.name.trim();
+    const metric = (value) => typeof value === "number" || typeof value === "string" ? optionalNumber(value) : null;
+    const headToHead = {};
+    if (team.headToHead && typeof team.headToHead === "object" && !Array.isArray(team.headToHead)) {
+      Object.entries(team.headToHead).forEach(([key, value]) => {
+        if (["__proto__", "constructor", "prototype"].includes(key)) return;
+        const differential = metric(value);
+        if (differential !== null) {
+          headToHead[key] = differential;
+        } else if (value && typeof value === "object" && !Array.isArray(value)) {
+          const fields = Object.fromEntries(["aWins", "bWins", "wins", "losses"]
+            .map((field) => [field, metric(value[field])]).filter(([, number]) => number !== null));
+          if (Object.keys(fields).length) headToHead[key] = fields;
+        }
+      });
+    }
+    return {
+      id: typeof team.id === "string" ? team.id.trim() : "",
+      name,
+      owner: typeof team.owner === "string" && team.owner.trim() ? team.owner.trim() : name,
+      previousTopThree: team.previousTopThree === true,
+      previousNumberOne: team.previousNumberOne === true,
+      winPct: metric(team.winPct),
+      sos: metric(team.sos),
+      headToHead,
+    };
+  }
+
+  /** Sanitize a year record, preserving optional archive and trade-review metadata. */
   function sanitizeRecord(record, fallbackYear) {
     if (!record || typeof record !== "object") return null;
     const year = sanitizeYear(record.year ?? fallbackYear);
@@ -132,6 +182,12 @@
       },
       seed: normalizeName(record.seed),
       ruleVersionId: normalizeName(record.ruleVersionId),
+      ...(typeof record.archived === "boolean" ? { archived: record.archived } : {}),
+      ...(typeof record.finalized === "boolean" ? { finalized: record.finalized } : {}),
+      ...(Array.isArray(record.reviewedTrades) ? {
+        reviewedTrades: record.reviewedTrades.map(sanitizeReviewedTrade).filter(Boolean),
+      } : {}),
+      ...(Array.isArray(record.teams) ? { teams: record.teams.map(sanitizeTeamSnapshot).filter(Boolean) } : {}),
     };
   }
 

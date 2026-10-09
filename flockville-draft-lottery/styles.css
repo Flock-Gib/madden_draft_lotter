@@ -36,6 +36,16 @@ textarea {
 
 button {
   cursor: pointer;
+  min-height: 44px;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+:focus-visible {
+  outline: 2px solid var(--purple-light);
+  outline-offset: 3px;
 }
 
 .app-shell {
@@ -137,6 +147,7 @@ a.button {
 }
 
 .button {
+  min-height: 44px;
   border: 1px solid transparent;
   border-radius: 12px;
   padding: 11px 16px;
@@ -505,6 +516,12 @@ th {
   letter-spacing: 0.04em;
 }
 
+summary {
+  min-height: 44px;
+  padding: 10px 0;
+  cursor: pointer;
+}
+
 .history-details summary:hover {
   color: var(--white);
 }
@@ -636,6 +653,7 @@ section[id] {
 
 .site-nav a {
   flex: 1 1 auto;
+  min-height: 44px;
   padding: 10px 14px;
   border-radius: 10px;
   color: var(--white);
@@ -962,4 +980,221 @@ section[id] {
 
 .manual-history-row input {
   width: 100%;
+}
+
+.mobile-team-list {
+  display: none;
+}
+
+.mobile-team-list button,
+.mobile-team-reorder {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.mobile-team-card,
+.bracket-match,
+.bracket-game {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(6, 4, 10, 0.42);
+}
+
+.mobile-team-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.mobile-team-fields,
+.mobile-team-flags,
+.flag-override-teams {
+  display: grid;
+  gap: 12px;
+}
+
+.mobile-team-fields label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.check-label,
+.mobile-team-flags label,
+.flag-override-teams label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+input[type="checkbox"] {
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
+  accent-color: var(--purple);
+}
+
+.setting-card input[type="checkbox"] {
+  width: 44px;
+  min-height: 44px;
+}
+
+.flag-source-panel {
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.app-dialog {
+  width: min(720px, calc(100% - 28px));
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  padding: 24px;
+  color: var(--white);
+  border: 1px solid var(--purple-light);
+  border-radius: 20px;
+  background: #130c1d;
+  box-shadow: var(--shadow);
+}
+
+.app-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.78);
+}
+
+.dry-run-panel {
+  border: 2px dashed var(--purple-light);
+}
+
+.dry-run-watermark {
+  padding: 10px 14px;
+  color: #ffdf9e;
+  border: 1px dashed #ffdf9e;
+  border-radius: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-align: center;
+}
+
+.bracket-panel,
+.recovery-preview {
+  margin-top: 16px;
+}
+
+.bracket-results,
+.bracket-rounds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  max-width: 100%;
+  overflow-x: auto;
+  padding-bottom: 16px;
+}
+
+.bracket-round {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  flex: 1 1 220px;
+  min-width: min(220px, 100%);
+}
+
+.bracket-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  gap: 12px;
+  width: 100%;
+}
+
+.bracket-match,
+.bracket-game,
+.recovery-preview,
+.mobile-team-card {
+  overflow-wrap: anywhere;
+}
+
+.glossary-list {
+  line-height: 1.55;
+}
+
+.trade-table {
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #0f0b15;
+  white-space: pre;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.tie-break-badge {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 3px 8px;
+  color: var(--purple-light);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+
+.glossary-list dt {
+  margin-top: 16px;
+  color: var(--purple-light);
+  font-weight: 700;
+}
+
+.glossary-list dd {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.walkthrough-list li {
+  padding: 8px 0;
+}
+
+@media (max-width: 767px) {
+  .setup-table {
+    display: none;
+  }
+
+  .mobile-team-list {
+    display: grid;
+    gap: 14px;
+    margin-top: 16px;
+  }
+
+  .panel {
+    padding: 18px;
+  }
+
+  .button-row > .button {
+    flex: 1 1 auto;
+  }
+
+  .app-dialog {
+    padding: 18px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .machine-orb.spinning {
+    animation: none;
+  }
+
+  .button {
+    transition: none;
+  }
 }

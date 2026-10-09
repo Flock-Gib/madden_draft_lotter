@@ -1,0 +1,13 @@
+{
+  "name": "madden_draft_lotter",
+  "version": "1.0.0",
+  "description": "Browser-local Madden draft lottery",
+  "private": true,
+  "scripts": {
+    "test": "node --test flockville-draft-lottery/*.test.js",
+    "test:browser": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.0"
+  }
+}
