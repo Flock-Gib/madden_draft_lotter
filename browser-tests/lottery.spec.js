@@ -175,12 +175,15 @@ test("mobile cards have touch-friendly working reorder buttons", async ({ page }
   await expect(page.locator("#teamTableBody")).toBeHidden();
   const first = page.locator("#mobileTeamList > *").first();
   await expect(first.locator(".mobile-team-heading strong")).toHaveText("#1 Raiders");
+  await page.locator("#seedInput").fill("mobile-seed-blur-regression");
   const down = first.getByRole("button", { name: /down|↓/i });
   const box = await down.boundingBox();
   expect(box.height).toBeGreaterThanOrEqual(44);
   expect(box.width).toBeGreaterThanOrEqual(44);
   await down.click();
   await expect(page.locator("#mobileTeamList > *").first().locator(".mobile-team-heading strong")).toHaveText("#1 Giants");
+  expect(await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("flockvilleDraftLotteryState")).teams[0].name)).toBe("Giants");
   await page.reload();
   await expect(page.locator("#mobileTeamList > *").first().locator(".mobile-team-heading strong")).toHaveText("#1 Giants");
   const card = page.locator("#mobileTeamList > *").first();
