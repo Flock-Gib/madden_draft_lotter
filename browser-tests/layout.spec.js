@@ -94,9 +94,8 @@ test("keyboard focus, accessible controls, and reduced motion are preserved", as
   await session.detach();
 });
 
-test("text and form boundaries meet contrast targets", async ({ page }) => {
-  await loadPreview(page);
-  const failures = await page.evaluate(() => {
+async function contrastFailures(page) {
+  return page.evaluate(() => {
     const rgba = (value) => value.match(/[\d.]+/g).map(Number);
     const blend = (color, base) => color.slice(0, 3)
       .map((channel, i) => channel * (color[3] ?? 1) + base[i] * (1 - (color[3] ?? 1)));
@@ -116,13 +115,12 @@ test("text and form boundaries meet contrast targets", async ({ page }) => {
         // Use the brightest gradient stop as a conservative text contrast check.
         return stops.map((stop) => blend(rgba(stop), solid))
           .reduce((brightest, stop) => luminance(stop) > luminance(brightest) ? stop : brightest, solid);
-      }, [12, 10, 18]);
+      }, [255, 255, 255]);
     };
-    const selectors = ".helper-text, .eyebrow, .tagline, .button:not(:disabled), .site-nav a, "
-      + ".setting-card strong, .setting-card small, .flow-steps strong, .flow-steps small, "
-      + ".step-num, .result-pick, .result-team, .result-owner, .movement-badge, .tie-break-badge";
-    const errors = [...document.querySelectorAll(selectors)]
+    const errors = [...document.querySelectorAll("body *")]
       .filter((el) => el.getClientRects().length)
+      .filter((el) => [...el.childNodes].some((node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim()))
+      .filter((el) => !["SCRIPT", "STYLE", "OPTION"].includes(el.tagName))
       .filter((el) => contrast(rgba(getComputedStyle(el).color), background(el)) < 4.5)
       .map((el) => `${el.className}: ${el.textContent.trim()}`);
     for (const el of document.querySelectorAll('input:not([type="checkbox"]):not(:disabled), select:not(:disabled), textarea')) {
@@ -133,5 +131,35 @@ test("text and form boundaries meet contrast targets", async ({ page }) => {
     }
     return errors;
   });
-  expect(failures).toEqual([]);
+}
+
+test("text and form boundaries meet contrast targets", async ({ page }) => {
+  await loadPreview(page);
+  expect(await contrastFailures(page)).toEqual([]);
+});
+
+test("bright component states remain readable across editors, dialogs, history, recovery, and guide", async ({ page }) => {
+  await loadPreview(page);
+  await page.locator("#setupLockBtn").click();
+  await page.locator("#newHistoryBtn").click();
+  await page.locator("#saveManualHistoryBtn").click();
+  expect(await contrastFailures(page)).toEqual([]);
+  await page.locator("#overrideNumberOneBtn").click();
+  await page.locator("#cancelFlagOverrideBtn").focus();
+  expect(await contrastFailures(page)).toEqual([]);
+  await page.locator("#cancelFlagOverrideBtn").click();
+  await page.locator("#recoveryText").fill("invalid JSON");
+  await page.locator("#previewRecoveryBtn").click();
+  expect(await contrastFailures(page)).toEqual([]);
+  await page.locator("#startLotteryBtn").click();
+  await page.locator("#skipAnimationBtn").click();
+  await expect(page.locator("#statusText")).toContainText("complete");
+  await page.locator("#generateBracketBtn").click();
+  await page.locator("#finalizeSeasonBtn").click();
+  await expect(page.locator("#finalizeDialog")).toBeVisible();
+  expect(await contrastFailures(page)).toEqual([]);
+  await page.locator("#cancelFinalizeBtn").click();
+  expect(await contrastFailures(page)).toEqual([]);
+  await page.goto("/info.html");
+  expect(await contrastFailures(page)).toEqual([]);
 });

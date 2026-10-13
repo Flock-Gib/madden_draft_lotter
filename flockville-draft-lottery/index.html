@@ -174,11 +174,34 @@
         </div>
       </div>
 
-      <div class="machine">
-        <div class="machine-orb">
-          <div id="machineText" class="machine-text">READY</div>
+      <div class="machine lottery-stage">
+        <div class="stage-heading">
+          <p class="eyebrow">FLOCKVILLE · DRAFT NIGHT</p>
+          <span id="drawProgress">Ready to reveal</span>
         </div>
-        <p id="statusText" class="status-text" aria-live="polite">Add teams, confirm the settings, and start the draw.</p>
+        <progress id="stageProgress" class="stage-progress" value="0" max="1" aria-label="Picks revealed"></progress>
+        <div class="machine-orb" data-phase="ready" aria-hidden="true">
+          <div class="lottery-balls">
+            <i></i><i></i><i></i><i></i><i></i><i></i>
+            <i></i><i></i><i></i><i></i><i></i><i></i>
+          </div>
+          <div class="extracted-ball"></div>
+        </div>
+        <div class="winner-card">
+          <p id="winnerPick" class="eyebrow">The next pick awaits</p>
+          <h3 id="machineText" class="machine-text">Ready for draft night</h3>
+          <p id="winnerOwner">Original team and pick owner will appear here.</p>
+        </div>
+        <div class="presentation-controls">
+          <label for="animationSpeed">Reveal speed</label>
+          <select id="animationSpeed">
+            <option value="normal">Normal</option>
+            <option value="fast">Fast</option>
+          </select>
+          <button id="skipAnimationBtn" class="button secondary" disabled>Skip Animation / Reveal All</button>
+        </div>
+        <p class="helper-text">Balls are decorative, not live odds. Speed and skip never change the order. Reduced motion uses a prompt, still reveal.</p>
+        <p id="statusText" class="status-text" role="status" aria-live="polite" aria-atomic="true">Add teams, confirm the settings, and start the draw.</p>
       </div>
     </section>
 
@@ -210,7 +233,7 @@
         <h2>Final Draft Order</h2>
         <p class="helper-text">Each card shows the pick won, the team whose lottery entry won it, who owns the pick, and how far it moved from the pre-lottery order (▲ up / ▼ down).</p>
       </div>
-      <div id="resultsGrid" class="results-grid" aria-live="polite"></div>
+      <div id="resultsGrid" class="results-grid"></div>
 
       <div class="required-trades">
         <h3 class="subheading" title="Ordered swaps between current pick owners that implement the lottery's final order.">Trades required to match the lottery order</h3>

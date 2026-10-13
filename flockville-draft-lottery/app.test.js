@@ -8,7 +8,7 @@ const tools = require("./lottery-tools.js");
 
 const source = fs.readFileSync(`${__dirname}/app.js`, "utf8").split("\nels.addTeamBtn.addEventListener")[0];
 
-function app(storage = new Map()) {
+function app(storage = new Map(), options = {}) {
   const nodes = new Map();
   const node = (id) => {
     if (!nodes.has(id)) nodes.set(id, {
@@ -31,7 +31,8 @@ function app(storage = new Map()) {
   const messages = [];
   const confirmations = [];
   const context = vm.createContext({
-    crypto, console,
+    crypto, console, setTimeout, clearTimeout,
+    ...options,
     document: { getElementById: node, querySelector: node, querySelectorAll: () => [], createElement: () => node(crypto.randomUUID()) },
     lotteryHistory: history,
     lotteryOrder: require("./lottery-order.js"),
@@ -66,6 +67,155 @@ function prior(year = 2025, names = ["Team 0", "Team 1", "Team 2"]) {
     finalOrder: names.map((team, index) => ({ pick: index + 1, team, owner: "Outside Owner" })),
   });
 }
+
+function animatedApp(mode = "normal") {
+  const delays = [];
+  const a = app(new Map(), {
+    setTimeout: (callback, ms) => {
+      delays.push(ms);
+      return setTimeout(callback, 0);
+    },
+    matchMedia: () => ({ matches: mode === "reduced", addEventListener() {}, removeEventListener() {} }),
+  });
+  a.state.manualProtectionYear = 2026;
+  a.state.seedEnabled = true;
+  a.state.seedText = "presentation-regression";
+  a.state.teams[0].owner = "Traded Owner";
+  a.node("animationSpeed").value = mode === "fast" ? "fast" : "normal";
+  a.node("lotteryPickCount").value = "4";
+  a.evaluate("render = () => { renderLockState(); persistState(); }");
+  let historyWrites = 0;
+  a.context.localStorage.setItem = (key, value) => {
+    if (key === "flockvilleDraftLotteryHistory") historyWrites += 1;
+    a.storage.set(key, value);
+  };
+  return { ...a, delays, historyWrites: () => historyWrites };
+}
+
+for (const mode of ["normal", "fast", "skip", "reduced"]) {
+  test(`${mode} presentation preserves seeded order/trades, saves once, and unlocks`, async () => {
+    const a = animatedApp(mode);
+    a.state.lotteryHistory = history.upsertRecord({}, prior(2024));
+    const previous = JSON.stringify(a.state.lotteryHistory["2024"]);
+    const expected = a.evaluate("runLotteryCalculation(createSeededRandom(state.seedText))");
+    a.context.expected = expected;
+    const expectedTrades = JSON.stringify(a.evaluate("getRequiredTrades(expected)"));
+    const done = a.evaluate("startLottery()");
+    assert.equal(a.state.isRunning, true);
+    assert.equal(a.node("startLotteryBtn").disabled, true);
+    assert.equal(a.node("seasonYearInput").disabled, true);
+    assert.equal(a.node("skipAnimationBtn").disabled, false);
+    assert.equal(a.evaluate("startLottery()"), undefined);
+    if (mode === "skip") {
+      a.evaluate("skipLotteryAnimation(); skipLotteryAnimation()");
+    }
+    await done;
+    assert.equal(JSON.stringify(a.state.results), JSON.stringify(expected));
+    assert.equal(JSON.stringify(a.state.lotteryHistory["2026"].trades), expectedTrades);
+    assert.equal(JSON.stringify(a.state.lotteryHistory["2024"]), previous);
+    assert.equal(a.historyWrites(), 1);
+    assert.equal(a.state.lastRunMeta.completed, true);
+    assert.equal(a.state.isRunning, false);
+    assert.equal(a.node("startLotteryBtn").disabled, false);
+    assert.equal(a.node("seasonYearInput").disabled, false);
+    assert.equal(a.node("skipAnimationBtn").disabled, true);
+    assert.equal(a.evaluate("activePresentation"), null);
+    assert.equal(a.node("winnerPick").textContent, "Standings placement · Pick #8");
+    assert.ok(a.delays.every((ms) => ms <= (mode === "fast" ? 275 : mode === "reduced" ? 80 : 1100)));
+    const restored = app(a.storage);
+    restored.evaluate("restoreStateFromStorage(); restoreHistoryFromStorage()");
+    assert.equal(restored.state.results.length, 8);
+    assert.equal(restored.state.lastRunMeta.completed, true);
+    assert.equal(restored.state.lotteryHistory["2026"].finalOrder.length, 8);
+  });
+}
+
+test("speed changes and reruns never recalculate or duplicate a completed history write", async () => {
+  const a = animatedApp();
+  const expected = a.evaluate("runLotteryCalculation(createSeededRandom(state.seedText))");
+  const done = a.evaluate("startLottery()");
+  a.node("animationSpeed").value = "fast";
+  a.evaluate("activePresentation.wake()");
+  await done;
+  assert.equal(JSON.stringify(a.state.results), JSON.stringify(expected));
+  assert.equal(a.historyWrites(), 1);
+  a.context.acceptConfirmation = false;
+  assert.equal(a.evaluate("startLottery()"), undefined);
+  assert.equal(a.historyWrites(), 1);
+  a.context.acceptConfirmation = true;
+  const rerun = a.evaluate("startLottery()");
+  a.evaluate("skipLotteryAnimation()");
+  await rerun;
+  assert.equal(a.historyWrites(), 2);
+  assert.equal(JSON.stringify(a.state.results), JSON.stringify(expected));
+  assert.equal(a.confirmations.length, 2);
+});
+
+test("interruption cleans the timer, retains prior history, and reload discards incomplete results", async () => {
+  const a = animatedApp();
+  a.state.lotteryHistory = history.upsertRecord({}, prior(2026));
+  const priorHistory = JSON.stringify(a.state.lotteryHistory);
+  const done = a.evaluate("startLottery()");
+  assert.equal(a.state.lastRunMeta.completed, false);
+  const reloaded = app(a.storage);
+  reloaded.evaluate("restoreStateFromStorage()");
+  assert.equal(reloaded.state.results.length, 0);
+  a.evaluate("stopLotteryPresentation()");
+  await done;
+  assert.equal(a.state.isRunning, false);
+  assert.equal(a.evaluate("activePresentation"), null);
+  assert.equal(a.historyWrites(), 0);
+  assert.equal(a.state.lastRunMeta.completed, false);
+  assert.equal(a.state.results.length, 0);
+  assert.equal(JSON.stringify(a.state.lotteryHistory), priorHistory);
+});
+
+test("reveal errors unlock controls without finalizing or overwriting history", async () => {
+  const a = animatedApp();
+  a.state.lotteryHistory = history.upsertRecord({}, prior(2026));
+  const priorHistory = JSON.stringify(a.state.lotteryHistory);
+  a.evaluate("renderResults = () => { throw new Error('reveal failed'); }");
+  await a.evaluate("startLottery()");
+  assert.equal(a.state.isRunning, false);
+  assert.equal(a.node("startLotteryBtn").disabled, false);
+  assert.equal(a.state.lastRunMeta.completed, false);
+  assert.equal(a.state.results.length, 0);
+  assert.equal(a.historyWrites(), 0);
+  assert.equal(JSON.stringify(a.state.lotteryHistory), priorHistory);
+  assert.match(a.messages.at(-1), /reveal failed/);
+});
+
+test("only the current reveal receives animation and team/owner text is safely escaped", () => {
+  const a = app();
+  a.state.results = [
+    { pick: 1, team: "<Team>", owner: "<Owner>", originalSlot: 1 },
+    { pick: 2, team: "Second", owner: "Second", originalSlot: 2 },
+  ];
+  a.evaluate("renderResults(2)");
+  const cards = a.node("resultsGrid").children;
+  assert.equal(cards[0].className, "result-card");
+  assert.equal(cards[1].className, "result-card is-revealing");
+  assert.match(cards[0].innerHTML, /&lt;Team&gt;/);
+  assert.match(cards[0].innerHTML, /&lt;Owner&gt;/);
+  a.evaluate("renderResults()");
+  assert.ok(a.node("resultsGrid").children.every((card) => card.className === "result-card"));
+});
+
+test("loaded results restore the stage and clearing results resets pick, owner and progress", () => {
+  const a = app();
+  a.state.results = [{ pick: 1, team: "Team 0", owner: "Traded Owner", originalSlot: 1 }];
+  a.state.lastRunMeta = { year: 2025, lotteryPickCount: 1, completed: true };
+  a.evaluate("renderResults()");
+  assert.equal(a.node("machineText").textContent, "Team 0");
+  assert.equal(a.node("winnerOwner").textContent, "Pick owned by Traded Owner");
+  assert.match(a.node("drawProgress").textContent, /2025/);
+  assert.equal(a.node("stageProgress").value, 1);
+  a.evaluate("state.results = []; renderResults()");
+  assert.equal(a.node("machineText").textContent, "Ready for draft night");
+  assert.equal(a.node("winnerPick").textContent, "The next pick awaits");
+  assert.equal(a.node("stageProgress").value, 0);
+  assert.doesNotMatch(a.node("winnerOwner").textContent, /Traded Owner/);
+});
 
 test("manual prior order drives two consecutive seasons with independent rule toggles", () => {
   const a = app();

@@ -10,7 +10,7 @@ A static web application for running the Flockville Madden League draft lottery.
 - Top-3 cooldown
 - No consecutive #1 pick
 - Traded pick ownership
-- Animated live drawing
+- Bright, accessible draft-night stage with decorative ball mixing and team/owner reveals
 - Discord-ready results
 - Lottery transparency panel with team-by-team balls, odds %, and tier subtotals
 - Trade list builder with Discord-ready copy export
@@ -34,6 +34,18 @@ A static web application for running the Flockville Madden League draft lottery.
 - Playoff brackets for 2–64 teams with byes and CSV/text exports
 - Independent season-scoped protection overrides, archive/restore for history years, and preview-first recovery
 - Accessible glossary, text walkthrough, and editable mobile team cards
+
+## Visual review previews
+
+These are browser captures, not mockups: [previous design](assets/previews/before-desktop.jpg) → [bright desktop design](assets/previews/bright-desktop.jpg).
+
+| Viewport | Live stage | Revealed stage |
+| --- | --- | --- |
+| Desktop · 1440px | [Mixing](assets/previews/stage-live-1440.jpg) | [Complete](assets/previews/stage-revealed-1440.jpg) |
+| Tablet · 768px | [Mixing](assets/previews/stage-live-768.jpg) | [Complete](assets/previews/stage-revealed-768.jpg) |
+| Mobile · 375px | [Mixing](assets/previews/stage-live-375.jpg) | [Complete](assets/previews/stage-revealed-375.jpg) |
+
+Mobile previews also cover the [guide](assets/previews/guide-mobile.jpg) and [protection dialog](assets/previews/dialog-mobile.jpg).
 
 ## Run Locally
 
@@ -96,6 +108,14 @@ Older full-state backups remain compatible. **Import History** can expose their 
 3. **Run the lottery** — set the **Season year** and click **Start Lottery**. If that year is already saved, you are asked before it is replaced.
 4. **View results & trades** — result cards show the pick, team, owner, pre-lottery slot, and movement (▲ up / ▼ down). The required trades are listed underneath.
 5. **Saved to history** — the finished lottery is saved automatically under **Past Lotteries**.
+
+### Draft-night presentation
+
+Choose **Normal** or **Fast** reveal speed before or during a draw. **Skip Animation / Reveal All** is available while running and immediately finishes the same computed order. Neither control changes weighting, seeded randomness, protections, pick ownership, or trades. History is saved once when the complete order is revealed; a second start is blocked during the reveal.
+
+The chamber's anonymous balls are decorative, not a live probability display. Each reveal shows the pick, original team, and current owner. Remaining picks are labeled **Standings placement**, and bottom-four adjustments are labeled **Protected placement**. Earlier result cards do not replay their reveal animations.
+
+The stage respects your device's **Reduce motion** preference: no mixing or extraction motion, with prompt reveals. It uses no audio, flashing, automatic focus changes, or forced scrolling. Status announcements describe revealed picks rather than decorative movement. Reloading or leaving during a reveal discards partial live results and keeps previously saved years unchanged. Export History for a durable backup.
 
 ## Required Trades
 

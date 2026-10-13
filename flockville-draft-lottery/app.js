@@ -91,6 +91,12 @@ const els = {
   finalizeSeasonBtn: document.getElementById("finalizeSeasonBtn"),
   machineText: document.getElementById("machineText"),
   machineOrb: document.querySelector(".machine-orb"),
+  animationSpeed: document.getElementById("animationSpeed"),
+  skipAnimationBtn: document.getElementById("skipAnimationBtn"),
+  drawProgress: document.getElementById("drawProgress"),
+  stageProgress: document.getElementById("stageProgress"),
+  winnerPick: document.getElementById("winnerPick"),
+  winnerOwner: document.getElementById("winnerOwner"),
   statusText: document.getElementById("statusText"),
   resultsGrid: document.getElementById("resultsGrid"),
   lotteryTransparency: document.getElementById("lotteryTransparency"),
@@ -129,6 +135,7 @@ const lotteryTrades = globalThis.lotteryTrades;
 const lotteryHistory = globalThis.lotteryHistory;
 const lotteryTools = globalThis.lotteryTools;
 let checksumWarning = "";
+let activePresentation = null;
 [
   "undoTradeBtn", "exportTradesCsvBtn", "exportTradesTableBtn", "finalizeDialog",
   "finalizeTradeList", "confirmFinalizeBtn", "cancelFinalizeBtn", "dryRunBtn",
@@ -739,7 +746,7 @@ function buildMovementBadge(originalSlot, pick) {
   return `<span class="movement-badge movement-none" title="Stayed in pre-lottery slot #${originalSlot}">—</span>`;
 }
 
-function renderResults() {
+function renderResults(revealedPick = null) {
   els.resultsGrid.innerHTML = "";
 
   if (!state.results.length) {
@@ -748,7 +755,7 @@ function renderResults() {
 
   state.results.forEach((result) => {
     const card = document.createElement("article");
-    card.className = "result-card";
+    card.className = result.pick === revealedPick ? "result-card is-revealing" : "result-card";
     const winnerTeam = normalizeName(result.team) || normalizeName(result.name) || "Unknown team";
     const ownerText = result.owner !== winnerTeam ? `Pick owned by ${result.owner}` : "Original team owns pick";
     const originalSlot = getOriginalSlot(result);
@@ -768,6 +775,7 @@ function renderResults() {
     els.resultsGrid.appendChild(card);
   });
 
+  renderLotteryStage();
   renderRequiredTrades();
 
   const hasResults = state.results.length > 0;
@@ -776,6 +784,28 @@ function renderResults() {
   els.finalizeSeasonBtn.disabled = !hasResults || state.isRunning;
   els.generateTradesBtn.disabled = !hasResults || state.isRunning;
   els.copyLotteryAnnouncementBtn.disabled = !hasResults;
+}
+
+function getRevealLabel(result) {
+  if (result.note?.includes("Bottom-Four Protection")) return "Protected placement";
+  return result.pick > (state.lastRunMeta?.lotteryPickCount ?? state.results.length)
+    ? "Standings placement" : "Lottery reveal";
+}
+
+function renderLotteryStage() {
+  if (state.isRunning) return;
+  const result = state.results.at(-1);
+  els.machineOrb.dataset.phase = result ? "complete" : "ready";
+  els.stageProgress.max = state.results.length || 1;
+  els.stageProgress.value = state.results.length;
+  els.drawProgress.textContent = result
+    ? `${state.results.length} of ${state.results.length} picks revealed · ${state.lastRunMeta?.year ?? state.seasonYear}`
+    : "Ready to reveal";
+  els.winnerPick.textContent = result ? `${getRevealLabel(result)} · Pick #${result.pick}` : "The next pick awaits";
+  els.machineText.textContent = result ? result.team : "Ready for draft night";
+  els.winnerOwner.textContent = result
+    ? result.owner !== result.team ? `Pick owned by ${result.owner}` : "Original team owns this pick"
+    : "Original team and pick owner will appear here.";
 }
 
 function getRequiredTrades(results = state.results) {
@@ -1328,6 +1358,7 @@ function renderLockState() {
   els.seasonYearInput.disabled = state.isRunning;
 
   els.startLotteryBtn.disabled = state.isRunning || state.teams.length < 2;
+  els.skipAnimationBtn.disabled = !state.isRunning;
   els.resetBtn.disabled = state.isRunning;
   if (els.dryRunBtn) els.dryRunBtn.disabled = state.isRunning || state.teams.length < 2;
   if (els.generateBracketBtn) els.generateBracketBtn.disabled = !state.results.length || state.isRunning;
@@ -1571,36 +1602,103 @@ function saveLotteryToHistory(results, runContext) {
   persistHistory();
 }
 
+function skipLotteryAnimation() {
+  if (!activePresentation) return;
+  activePresentation.skip = true;
+  activePresentation.wake?.();
+}
+
+function presentationPause(presentation, ms) {
+  if (presentation.skip || presentation.cancelled) return Promise.resolve();
+  const delay = presentation.motion?.matches ? 80 : ms / (els.animationSpeed.value === "fast" ? 4 : 1);
+  return new Promise((resolve) => {
+    const finish = () => {
+      clearTimeout(presentation.timer);
+      presentation.timer = null;
+      presentation.wake = null;
+      resolve();
+    };
+    presentation.wake = finish;
+    presentation.timer = setTimeout(finish, delay);
+  });
+}
+
+function stopLotteryPresentation() {
+  if (!activePresentation) return;
+  activePresentation.cancelled = true;
+  activePresentation.wake?.();
+}
+
 async function animateLottery(results, runContext) {
+  if (state.isRunning) return;
+  const presentation = {
+    skip: false, cancelled: false, timer: null, wake: null,
+    motion: globalThis.matchMedia?.("(prefers-reduced-motion: reduce)"),
+  };
+  const motionChanged = () => presentation.wake?.();
+  activePresentation = presentation;
   state.isRunning = true;
   state.results = [];
-  render();
-
-  els.machineOrb.classList.add("spinning");
-
-  for (const result of results) {
-    els.statusText.textContent = `Drawing Pick #${result.pick}...`;
-
-    const names = state.teams.map((team) => team.name);
-    for (let i = 0; i < 14; i += 1) {
-      els.machineText.textContent = names[Math.floor(Math.random() * names.length)] || "...";
-      await wait(75 + i * 7);
+  try {
+    presentation.motion?.addEventListener("change", motionChanged);
+    render();
+    els.stageProgress.max = results.length;
+    els.stageProgress.value = 0;
+    for (const result of results) {
+      if (presentation.cancelled) return;
+      const placement = getRevealLabel(result);
+      els.drawProgress.textContent = `Pick ${result.pick} of ${results.length} · ${runContext.year}`;
+      els.winnerPick.textContent = `${placement} · Pick #${result.pick}`;
+      els.machineText.textContent = placement === "Lottery reveal" ? "Mixing the chamber" : "Setting the order";
+      els.winnerOwner.textContent = "";
+      if (placement === "Lottery reveal") {
+        els.machineOrb.dataset.phase = "mixing";
+        await presentationPause(presentation, 1100);
+        els.machineOrb.dataset.phase = "settling";
+        await presentationPause(presentation, 350);
+        els.machineOrb.dataset.phase = "extracting";
+        await presentationPause(presentation, 450);
+      }
+      if (presentation.cancelled) return;
+      els.machineOrb.dataset.phase = "revealed";
+      els.machineText.textContent = result.team;
+      const owner = result.owner !== result.team ? `Pick owned by ${result.owner}` : "Original team owns this pick";
+      els.winnerOwner.textContent = owner;
+      state.results.push(result);
+      renderResults(presentation.skip || presentation.motion?.matches ? null : result.pick);
+      els.stageProgress.value = state.results.length;
+      if (!presentation.skip) {
+        els.statusText.textContent = `${placement}: Pick #${result.pick}, ${result.team}. ${owner}.`;
+      }
+      persistState();
+      await presentationPause(presentation, 950);
     }
-
-    els.machineText.textContent = result.team;
-    state.results.push(result);
-    renderResults();
-    persistState();
-    await wait(700);
+    if (presentation.cancelled) return;
+    saveLotteryToHistory(results, runContext);
+    state.lastRunMeta.completed = true;
+    els.drawProgress.textContent = `${results.length} of ${results.length} picks revealed · ${runContext.year}`;
+    els.statusText.textContent = `The Flockville Draft Lottery is complete for ${runContext.year}. Results and trades are in history; export a backup.`;
+  } catch (error) {
+    state.results = [];
+    if (state.lastRunMeta) state.lastRunMeta.completed = false;
+    els.machineText.textContent = "Reveal interrupted";
+    els.winnerOwner.textContent = "";
+    els.statusText.textContent = "The reveal could not finish. Partial live results were discarded; no completed draw was saved.";
+    showToast(error.message || "Could not finish the lottery reveal.");
+  } finally {
+    clearTimeout(presentation.timer);
+    presentation.wake = null;
+    presentation.motion?.removeEventListener("change", motionChanged);
+    activePresentation = null;
+    state.isRunning = false;
+    if (presentation.cancelled) {
+      state.results = [];
+      els.statusText.textContent = "The draw was interrupted. Partial live results were discarded; saved history is unchanged.";
+    }
+    els.machineOrb.dataset.phase = state.lastRunMeta?.completed ? "complete" : "ready";
+    renderLockState();
+    render();
   }
-
-  els.machineOrb.classList.remove("spinning");
-  els.machineText.textContent = "COMPLETE";
-  state.lastRunMeta.completed = true;
-  saveLotteryToHistory(results, runContext);
-  els.statusText.textContent = `The Flockville Draft Lottery is complete. Results and trades were saved to history for ${runContext.year}.`;
-  state.isRunning = false;
-  render();
 }
 
 function startLottery() {
@@ -1661,7 +1759,7 @@ function startLottery() {
     return;
   }
   state.lastRunMeta = buildRunMeta(seedUsed);
-  animateLottery(results, runContext);
+  return animateLottery(results, runContext);
 }
 
 function buildDiscordText() {
@@ -2012,10 +2110,6 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
-}
-
-function wait(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function showToast(message) {
@@ -2784,6 +2878,9 @@ els.loadDemoBtn.addEventListener("click", loadDemo);
 els.loadAllNflBtn.addEventListener("click", loadAllNflTeams);
 els.resetBtn.addEventListener("click", resetApp);
 els.startLotteryBtn.addEventListener("click", startLottery);
+els.skipAnimationBtn.addEventListener("click", skipLotteryAnimation);
+els.animationSpeed.addEventListener("change", () => activePresentation?.wake?.());
+globalThis.addEventListener?.("pagehide", stopLotteryPresentation);
 els.finalizeSeasonBtn.addEventListener("click", openFinalizeReview);
 els.generateTradesBtn.addEventListener("click", generateTradesFromResults);
 els.copyLotteryAnnouncementBtn.addEventListener("click", copyDiscordResults);
