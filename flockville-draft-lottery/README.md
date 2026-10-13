@@ -113,6 +113,8 @@ Older full-state backups remain compatible. **Import History** can expose their 
 
 Choose **Normal** or **Fast** reveal speed before or during a draw. **Skip Animation / Reveal All** is available while running and immediately finishes the same computed order. Neither control changes weighting, seeded randomness, protections, pick ownership, or trades. History is saved once when the complete order is revealed; a second start is blocked during the reveal.
 
+When WebGL is available, the stage lazily loads a pinned, integrity-checked Three.js renderer for a glossy ball chamber, metallic frame, and animated reveal chute. If WebGL or the renderer is unavailable, the existing 2D animation remains in use. The 3D pool is capped at 12 balls and pixel density is limited for mobile performance; Reduce motion stops the mixing movement. The 3D scene only displays results that the lottery has already computed and never affects odds or draw randomness.
+
 The chamber's anonymous balls are decorative, not a live probability display. Each reveal shows the pick, original team, and current owner. Remaining picks are labeled **Standings placement**, and bottom-four adjustments are labeled **Protected placement**. Earlier result cards do not replay their reveal animations.
 
 The stage respects your device's **Reduce motion** preference: no mixing or extraction motion, with prompt reveals. It uses no audio, flashing, automatic focus changes, or forced scrolling. Status announcements describe revealed picks rather than decorative movement. Reloading or leaving during a reveal discards partial live results and keeps previously saved years unchanged. Export History for a durable backup.

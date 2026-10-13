@@ -15,7 +15,7 @@
         threePromise = null;
         resolve(null);
       };
-      const timeout = setTimeout(fail, 4000);
+      const timeout = setTimeout(fail, 2500);
       script.src = THREE_URL;
       script.integrity = THREE_INTEGRITY;
       script.crossOrigin = "anonymous";
@@ -73,7 +73,7 @@
 
       scene = new THREE.Scene();
       const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 100);
-      camera.position.set(0, 0.25, 7.4);
+      camera.position.set(0, 0.25, 8.1);
       scene.add(new THREE.HemisphereLight(0xffffff, 0x7d68a5, 2.1));
 
       const keyLight = new THREE.DirectionalLight(0xffffff, 3.3);

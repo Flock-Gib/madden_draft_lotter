@@ -1659,12 +1659,12 @@ async function animateLottery(results, runContext) {
     motion: globalThis.matchMedia?.("(prefers-reduced-motion: reduce)"),
   };
   const motionChanged = () => {
-  try {
-    activeLotteryStage3d?.setReducedMotion(presentation.motion?.matches);
-  } catch {
-    disableLotteryStage3d();
-  }
-  presentation.wake?.();
+    try {
+      activeLotteryStage3d?.setReducedMotion(presentation.motion?.matches);
+    } catch {
+      disableLotteryStage3d();
+    }
+    presentation.wake?.();
   };
   activePresentation = presentation;
   state.isRunning = true;
@@ -1675,11 +1675,14 @@ async function animateLottery(results, runContext) {
     els.stageProgress.max = results.length;
     els.stageProgress.value = 0;
     try {
-      activeLotteryStage3d = await globalThis.createLotteryStage3d?.(
-        els.lottery3d,
-        els.lottery3dCanvas,
-        disableLotteryStage3d,
-      ) || null;
+      const createStage = globalThis.createLotteryStage3d;
+      if (createStage) {
+        activeLotteryStage3d = await createStage(
+          els.lottery3d,
+          els.lottery3dCanvas,
+          disableLotteryStage3d,
+        ) || null;
+      }
       if (activeLotteryStage3d) els.lotteryStage.classList.add("has-3d");
     } catch {
       disableLotteryStage3d();
@@ -1708,10 +1711,12 @@ async function animateLottery(results, runContext) {
       }
       if (presentation.cancelled) return;
       els.extractedBall.textContent = String(result.pick);
-      try {
-        activeLotteryStage3d?.reveal(result);
-      } catch {
-        disableLotteryStage3d();
+      if (placement !== "Lottery reveal") {
+        try {
+          activeLotteryStage3d?.reveal(result);
+        } catch {
+          disableLotteryStage3d();
+        }
       }
       setLotteryPresentationPhase("revealed");
       els.machineText.textContent = result.team;
