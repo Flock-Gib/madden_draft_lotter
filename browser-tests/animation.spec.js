@@ -68,6 +68,104 @@ for (const mode of ["normal", "fast", "skip", "reduced"]) {
   });
 }
 
+test("3D load failure falls back to 2D without changing the saved order", async ({ page }) => {
+  await page.route("https://cdn.jsdelivr.net/**", (route) => route.abort());
+  const expected = await page.evaluate(() => runLotteryCalculation(createSeededRandom(state.seedText)));
+  await page.locator("#startLotteryBtn").click();
+  await expect(page.locator("#machineText")).toContainText("Mixing", { timeout: 10_000 });
+  await expect(page.locator(".machine-orb")).toBeVisible();
+  await expect(page.locator(".lottery-3d")).toBeHidden();
+  await page.locator("#skipAnimationBtn").click();
+  await expect(page.locator("#statusText")).toContainText("complete");
+  const saved = await page.evaluate(() => ({
+    results: state.results,
+    writes: window.historyWrites,
+    active: activePresentation,
+  }));
+  expect(saved.results).toEqual(expected);
+  expect(saved.writes).toBe(1);
+  expect(saved.active).toBeNull();
+});
+
+test("3D initialization errors fall back to the existing presentation", async ({ page }) => {
+  await page.evaluate(() => {
+    globalThis.createLotteryStage3d = async () => {
+      throw new Error("WebGL initialization failed");
+    };
+  });
+  await page.locator("#startLotteryBtn").click();
+  await expect(page.locator("#machineText")).toContainText("Mixing", { timeout: 10_000 });
+  await expect(page.locator(".machine-orb")).toBeVisible();
+  await expect(page.locator(".lottery-3d")).toBeHidden();
+  await page.locator("#skipAnimationBtn").click();
+  await expect(page.locator("#statusText")).toContainText("complete");
+  await expect(page.locator("#startLotteryBtn")).toBeEnabled();
+});
+
+test("3D presentation reveals the precomputed seeded results in order and disposes once", async ({ page }) => {
+  await page.evaluate(() => {
+    window.stageReveals = [];
+    window.stageDisposals = 0;
+    globalThis.createLotteryStage3d = async (container) => {
+      container.hidden = false;
+      return {
+        setPhase() {},
+        reveal(result) { window.stageReveals.push({ pick: result.pick, team: result.team }); },
+        setReducedMotion() {},
+        dispose() { window.stageDisposals += 1; },
+      };
+    };
+  });
+  const expected = await page.evaluate(() => runLotteryCalculation(createSeededRandom(state.seedText)));
+  await page.locator("#startLotteryBtn").click();
+  await page.locator("#skipAnimationBtn").click();
+  await expect(page.locator("#statusText")).toContainText("complete");
+  const saved = await page.evaluate(() => ({
+    results: state.results,
+    reveals: window.stageReveals,
+    disposals: window.stageDisposals,
+    writes: window.historyWrites,
+  }));
+  expect(saved.results).toEqual(expected);
+  expect(saved.reveals).toEqual(expected.map(({ pick, team }) => ({ pick, team })));
+  expect(saved.disposals).toBe(1);
+  expect(saved.writes).toBe(1);
+});
+
+test("interrupted 3D presentation disposes its stage and unlocks the app", async ({ page }) => {
+  await page.evaluate(() => {
+    window.stageDisposals = 0;
+    globalThis.createLotteryStage3d = async (container) => {
+      container.hidden = false;
+      return {
+        setPhase() {},
+        reveal() {},
+        setReducedMotion() {},
+        dispose() { window.stageDisposals += 1; },
+      };
+    };
+  });
+  await page.locator("#startLotteryBtn").click();
+  await page.waitForFunction(() => activeLotteryStage3d !== null);
+  await page.evaluate(() => stopLotteryPresentation());
+  await expect(page.locator("#startLotteryBtn")).toBeEnabled();
+  await expect(page.locator(".lottery-3d")).toBeHidden();
+  const cleanup = await page.evaluate(() => ({
+    disposals: window.stageDisposals,
+    results: state.results,
+    active: activePresentation,
+    running: state.isRunning,
+    writes: window.historyWrites,
+  }));
+  expect(cleanup).toEqual({
+    disposals: 1,
+    results: [],
+    active: null,
+    running: false,
+    writes: 0,
+  });
+});
+
 test("rerun and interrupted reload preserve the completed historical record", async ({ page }) => {
   await page.locator("#startLotteryBtn").click();
   await page.locator("#skipAnimationBtn").click();
