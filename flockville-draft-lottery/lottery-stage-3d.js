@@ -274,8 +274,9 @@
       });
       disposables.clear();
       try {
+        // No forceContextLoss: the app reuses this canvas, and a force-lost
+        // context would be handed back to the next run's renderer.
         renderer?.dispose();
-        renderer?.forceContextLoss();
       } catch {}
     };
     try {
