@@ -101,6 +101,7 @@ const els = {
   stageProgress: document.getElementById("stageProgress"),
   winnerPick: document.getElementById("winnerPick"),
   winnerOwner: document.getElementById("winnerOwner"),
+  winnerBadge: document.getElementById("winnerBadge"),
   statusText: document.getElementById("statusText"),
   resultsGrid: document.getElementById("resultsGrid"),
   lotteryTransparency: document.getElementById("lotteryTransparency"),
@@ -138,6 +139,7 @@ const lotteryOrder = globalThis.lotteryOrder || {};
 const lotteryTrades = globalThis.lotteryTrades;
 const lotteryHistory = globalThis.lotteryHistory;
 const lotteryTools = globalThis.lotteryTools;
+const lotteryTeamBranding = globalThis.lotteryTeamBranding;
 let checksumWarning = "";
 let activePresentation = null;
 let activeLotteryStage3d = null;
@@ -797,9 +799,43 @@ function getRevealLabel(result) {
     ? "Standings placement" : "Lottery reveal";
 }
 
+// Presentation-only team badge on the winner card: optional permitted logo,
+// otherwise a team-color monogram. It never affects the draw.
+function renderWinnerBadge(teamName) {
+  const badge = els.winnerBadge;
+  if (!badge) return;
+  if (!teamName || !lotteryTeamBranding) {
+    badge.hidden = true;
+    badge.textContent = "";
+    return;
+  }
+  const branding = lotteryTeamBranding.getTeamBranding(teamName, lotteryTeamBranding.getLoadedLogos());
+  badge.hidden = false;
+  badge.textContent = "";
+  badge.dataset.team = branding.key;
+  badge.style?.setProperty?.("--team-primary", branding.primary);
+  badge.style?.setProperty?.("--team-secondary", branding.secondary);
+  badge.style?.setProperty?.("--team-ink", branding.ink);
+  const monogram = document.createElement("span");
+  monogram.className = "team-badge-text";
+  monogram.textContent = branding.abbr;
+  if (branding.logoUrl) {
+    const logo = document.createElement("img");
+    logo.alt = "";
+    logo.decoding = "async";
+    logo.referrerPolicy = "no-referrer";
+    logo.addEventListener("error", () => logo.replaceWith(monogram), { once: true });
+    logo.src = branding.logoUrl;
+    badge.appendChild(logo);
+  } else {
+    badge.appendChild(monogram);
+  }
+}
+
 function renderLotteryStage() {
   if (state.isRunning) return;
   const result = state.results.at(-1);
+  renderWinnerBadge(result?.team);
   els.machineOrb.dataset.phase = result ? "complete" : "ready";
   els.stageProgress.max = state.results.length || 1;
   els.stageProgress.value = state.results.length;
@@ -1643,6 +1679,14 @@ function disableLotteryStage3d() {
   els.lottery3d.hidden = true;
 }
 
+function setLotteryStageSpeed() {
+  try {
+    activeLotteryStage3d?.setSpeed?.(els.animationSpeed.value);
+  } catch {
+    disableLotteryStage3d();
+  }
+}
+
 function setLotteryPresentationPhase(phase) {
   els.machineOrb.dataset.phase = phase;
   try {
@@ -1676,11 +1720,20 @@ async function animateLottery(results, runContext) {
     els.stageProgress.value = 0;
     try {
       const createStage = globalThis.createLotteryStage3d;
+      lotteryTeamBranding?.loadLogoManifest?.();
       if (createStage) {
+        // Decorative pool: one ball per team, sorted by name so ball placement
+        // never hints at the precomputed order.
+        const teams = [...new Set(results.map((result) => result.team))]
+          .sort((a, b) => String(a).localeCompare(String(b)));
         activeLotteryStage3d = await createStage(
           els.lottery3d,
           els.lottery3dCanvas,
           disableLotteryStage3d,
+          {
+            teams,
+            speed: els.animationSpeed.value,
+          },
         ) || null;
       }
       if (activeLotteryStage3d) els.lotteryStage.classList.add("has-3d");
@@ -1695,31 +1748,33 @@ async function animateLottery(results, runContext) {
       els.winnerPick.textContent = `${placement} · Pick #${result.pick}`;
       els.machineText.textContent = placement === "Lottery reveal" ? "Mixing the chamber" : "Setting the order";
       els.winnerOwner.textContent = "";
+      renderWinnerBadge(null);
       if (placement === "Lottery reveal") {
         setLotteryPresentationPhase("mixing");
         await presentationPause(presentation, 1100);
         setLotteryPresentationPhase("settling");
-        await presentationPause(presentation, 350);
+        await presentationPause(presentation, 500);
         els.extractedBall.textContent = String(result.pick);
         try {
-          activeLotteryStage3d?.reveal(result);
+          activeLotteryStage3d?.reveal(result, { kind: "draw" });
         } catch {
           disableLotteryStage3d();
         }
         setLotteryPresentationPhase("extracting");
-        await presentationPause(presentation, 450);
+        await presentationPause(presentation, 1100);
       }
       if (presentation.cancelled) return;
       els.extractedBall.textContent = String(result.pick);
       if (placement !== "Lottery reveal") {
         try {
-          activeLotteryStage3d?.reveal(result);
+          activeLotteryStage3d?.reveal(result, { kind: "placement" });
         } catch {
           disableLotteryStage3d();
         }
       }
       setLotteryPresentationPhase("revealed");
       els.machineText.textContent = result.team;
+      renderWinnerBadge(result.team);
       const owner = result.owner !== result.team ? `Pick owned by ${result.owner}` : "Original team owns this pick";
       els.winnerOwner.textContent = owner;
       state.results.push(result);
@@ -2938,7 +2993,10 @@ els.loadAllNflBtn.addEventListener("click", loadAllNflTeams);
 els.resetBtn.addEventListener("click", resetApp);
 els.startLotteryBtn.addEventListener("click", startLottery);
 els.skipAnimationBtn.addEventListener("click", skipLotteryAnimation);
-els.animationSpeed.addEventListener("change", () => activePresentation?.wake?.());
+els.animationSpeed.addEventListener("change", () => {
+  setLotteryStageSpeed();
+  activePresentation?.wake?.();
+});
 globalThis.addEventListener?.("pagehide", stopLotteryPresentation);
 els.finalizeSeasonBtn.addEventListener("click", openFinalizeReview);
 els.generateTradesBtn.addEventListener("click", generateTradesFromResults);
