@@ -91,6 +91,10 @@ const els = {
   finalizeSeasonBtn: document.getElementById("finalizeSeasonBtn"),
   machineText: document.getElementById("machineText"),
   machineOrb: document.querySelector(".machine-orb"),
+  lotteryStage: document.querySelector(".lottery-stage"),
+  lottery3d: document.querySelector(".lottery-3d"),
+  lottery3dCanvas: document.querySelector(".lottery-3d-canvas"),
+  extractedBall: document.querySelector(".extracted-ball"),
   animationSpeed: document.getElementById("animationSpeed"),
   skipAnimationBtn: document.getElementById("skipAnimationBtn"),
   drawProgress: document.getElementById("drawProgress"),
@@ -136,6 +140,7 @@ const lotteryHistory = globalThis.lotteryHistory;
 const lotteryTools = globalThis.lotteryTools;
 let checksumWarning = "";
 let activePresentation = null;
+let activeLotteryStage3d = null;
 [
   "undoTradeBtn", "exportTradesCsvBtn", "exportTradesTableBtn", "finalizeDialog",
   "finalizeTradeList", "confirmFinalizeBtn", "cancelFinalizeBtn", "dryRunBtn",
@@ -1629,13 +1634,38 @@ function stopLotteryPresentation() {
   activePresentation.wake?.();
 }
 
+function disableLotteryStage3d() {
+  try {
+    activeLotteryStage3d?.dispose();
+  } catch {}
+  activeLotteryStage3d = null;
+  els.lotteryStage.classList.remove("has-3d");
+  els.lottery3d.hidden = true;
+}
+
+function setLotteryPresentationPhase(phase) {
+  els.machineOrb.dataset.phase = phase;
+  try {
+    activeLotteryStage3d?.setPhase(phase);
+  } catch {
+    disableLotteryStage3d();
+  }
+}
+
 async function animateLottery(results, runContext) {
   if (state.isRunning) return;
   const presentation = {
     skip: false, cancelled: false, timer: null, wake: null,
     motion: globalThis.matchMedia?.("(prefers-reduced-motion: reduce)"),
   };
-  const motionChanged = () => presentation.wake?.();
+  const motionChanged = () => {
+  try {
+    activeLotteryStage3d?.setReducedMotion(presentation.motion?.matches);
+  } catch {
+    disableLotteryStage3d();
+  }
+  presentation.wake?.();
+  };
   activePresentation = presentation;
   state.isRunning = true;
   state.results = [];
@@ -1644,6 +1674,17 @@ async function animateLottery(results, runContext) {
     render();
     els.stageProgress.max = results.length;
     els.stageProgress.value = 0;
+    try {
+      activeLotteryStage3d = await globalThis.createLotteryStage3d?.(
+        els.lottery3d,
+        els.lottery3dCanvas,
+        disableLotteryStage3d,
+      ) || null;
+      if (activeLotteryStage3d) els.lotteryStage.classList.add("has-3d");
+    } catch {
+      disableLotteryStage3d();
+    }
+    if (presentation.cancelled) return;
     for (const result of results) {
       if (presentation.cancelled) return;
       const placement = getRevealLabel(result);
@@ -1652,15 +1693,27 @@ async function animateLottery(results, runContext) {
       els.machineText.textContent = placement === "Lottery reveal" ? "Mixing the chamber" : "Setting the order";
       els.winnerOwner.textContent = "";
       if (placement === "Lottery reveal") {
-        els.machineOrb.dataset.phase = "mixing";
+        setLotteryPresentationPhase("mixing");
         await presentationPause(presentation, 1100);
-        els.machineOrb.dataset.phase = "settling";
+        setLotteryPresentationPhase("settling");
         await presentationPause(presentation, 350);
-        els.machineOrb.dataset.phase = "extracting";
+        els.extractedBall.textContent = String(result.pick);
+        try {
+          activeLotteryStage3d?.reveal(result);
+        } catch {
+          disableLotteryStage3d();
+        }
+        setLotteryPresentationPhase("extracting");
         await presentationPause(presentation, 450);
       }
       if (presentation.cancelled) return;
-      els.machineOrb.dataset.phase = "revealed";
+      els.extractedBall.textContent = String(result.pick);
+      try {
+        activeLotteryStage3d?.reveal(result);
+      } catch {
+        disableLotteryStage3d();
+      }
+      setLotteryPresentationPhase("revealed");
       els.machineText.textContent = result.team;
       const owner = result.owner !== result.team ? `Pick owned by ${result.owner}` : "Original team owns this pick";
       els.winnerOwner.textContent = owner;
@@ -1689,13 +1742,14 @@ async function animateLottery(results, runContext) {
     clearTimeout(presentation.timer);
     presentation.wake = null;
     presentation.motion?.removeEventListener("change", motionChanged);
+    disableLotteryStage3d();
     activePresentation = null;
     state.isRunning = false;
     if (presentation.cancelled) {
       state.results = [];
       els.statusText.textContent = "The draw was interrupted. Partial live results were discarded; saved history is unchanged.";
     }
-    els.machineOrb.dataset.phase = state.lastRunMeta?.completed ? "complete" : "ready";
+    setLotteryPresentationPhase(state.lastRunMeta?.completed ? "complete" : "ready");
     renderLockState();
     render();
   }
