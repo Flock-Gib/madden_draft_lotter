@@ -529,22 +529,107 @@ tbody tr:focus-within {
   font-variant-numeric: tabular-nums;
 }
 
-.machine-orb {
+.machine-illustration {
   position: relative;
   display: grid;
-  width: min(300px, 100%);
+  width: min(390px, 100%);
+  height: 380px;
+  margin: 0 auto;
+  place-items: center;
+}
+
+.machine-cap {
+  position: absolute;
+  z-index: 2;
+  top: 20px;
+  width: 112px;
+  height: 38px;
+  border: 2px solid #735b9e;
+  border-radius: 12px 12px 8px 8px;
+  background: linear-gradient(110deg, #fff, #cfc0e7 38%, #967fb7 70%, #e8def6);
+  box-shadow: 0 5px 10px rgba(62, 42, 91, 0.18);
+}
+
+.machine-cap::before {
+  content: "";
+  position: absolute;
+  top: -10px;
+  left: 16px;
+  width: 76px;
+  height: 10px;
+  border: 2px solid #735b9e;
+  border-bottom: 0;
+  border-radius: 10px 10px 0 0;
+  background: #e8def6;
+}
+
+.machine-cap span {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  width: 36px;
+  height: 7px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #258f84, #85d0c3);
+  box-shadow: 0 0 8px rgba(37, 143, 132, 0.5);
+  transform: translateX(-50%);
+}
+
+.machine-orb {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: min(288px, 100%);
   aspect-ratio: 1;
   overflow: hidden;
   place-items: center;
-  border: 3px solid #b5a0de;
+  border: 8px solid #9a87bc;
   border-radius: 50%;
   background:
-    radial-gradient(ellipse at 30% 18%, rgba(255,255,255,0.95), transparent 40%),
-    radial-gradient(circle at 50% 45%, #faf8ff 10%, #eee5ff 70%, #d5c3f4);
+    radial-gradient(ellipse at 30% 18%, rgba(255,255,255,0.98), transparent 42%),
+    radial-gradient(ellipse at 68% 76%, rgba(73, 163, 153, 0.12), transparent 48%),
+    radial-gradient(circle at 50% 45%, #fbfaff 10%, #e9e2f5 72%, #c3b4dc);
   box-shadow:
-    inset 0 -12px 24px rgba(105, 49, 207, 0.12),
-    inset 0 0 0 7px rgba(255, 255, 255, 0.65),
-    0 16px 32px rgba(105, 49, 207, 0.12);
+    inset 0 -16px 30px rgba(69, 49, 103, 0.18),
+    inset 0 0 0 5px rgba(255, 255, 255, 0.78),
+    0 0 0 5px #d8cce9,
+    0 15px 26px rgba(46, 34, 68, 0.2);
+}
+
+.machine-stand {
+  position: absolute;
+  z-index: 0;
+  bottom: 8px;
+  width: 230px;
+  height: 62px;
+  border: 2px solid #735b9e;
+  border-radius: 12px 12px 24px 24px;
+  background: linear-gradient(100deg, #9f8cbd, #eee8f6 24%, #b7a5d1 53%, #796394 82%, #cbbce0);
+  box-shadow: 0 12px 18px rgba(62, 42, 91, 0.2), inset 0 5px 7px rgba(255, 255, 255, 0.85);
+}
+
+.machine-stand::before {
+  content: "";
+  position: absolute;
+  top: 7px;
+  left: 50%;
+  width: 82px;
+  height: 6px;
+  border-radius: 999px;
+  background: #258f84;
+  box-shadow: 0 0 8px rgba(37, 143, 132, 0.45);
+  transform: translateX(-50%);
+}
+
+.machine-stand span {
+  position: absolute;
+  right: 17px;
+  bottom: 10px;
+  left: 17px;
+  height: 17px;
+  border: 1px solid rgba(86, 66, 116, 0.35);
+  border-radius: 5px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.65), rgba(108,83,145,0.12));
 }
 
 .lottery-3d {
@@ -563,7 +648,7 @@ tbody tr:focus-within {
   height: 100%;
 }
 
-.lottery-stage.has-3d .machine-orb {
+.lottery-stage.has-3d .machine-illustration {
   display: none;
 }
 
@@ -690,7 +775,7 @@ tbody tr:focus-within {
   overflow-wrap: anywhere;
 }
 
-.machine-orb[data-phase="revealed"] ~ .winner-card {
+.machine-illustration:has(.machine-orb[data-phase="revealed"]) ~ .winner-card {
   animation: reveal 0.35s ease-out;
 }
 
@@ -827,6 +912,21 @@ tbody tr:focus-within {
   font-weight: 700;
 }
 
+.cpu-badge {
+  display: inline-block;
+  margin: 3px 4px;
+  padding: 3px 8px;
+  color: #155e58;
+  border: 1px solid #70b8ad;
+  border-radius: 999px;
+  background: #e4f5f1;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  vertical-align: middle;
+  white-space: nowrap;
+}
 .result-owner {
   color: var(--muted);
   font-size: 0.94rem;
@@ -1851,7 +1951,7 @@ input[type="checkbox"] {
   .machine-orb[data-phase] .extracted-ball,
   .result-card.is-revealing,
   .app-dialog[open],
-  .machine-orb[data-phase] ~ .winner-card,
+  .machine-illustration:has(.machine-orb[data-phase]) ~ .winner-card,
   .toast {
     animation: none;
     transition: none;

@@ -85,6 +85,7 @@
               <th title="Lottery balls: 3 for the bottom four, 2 for the next four, 1 for everyone else.">Balls</th>
               <th title="Finished in the Top 3 of last year's lottery (Top-3 cooldown).">Previous Top 3?</th>
               <th title="Won last year's #1 pick (no consecutive #1).">Previous #1?</th>
+              <th title="The original team stays in its pre-lottery slot and receives no lottery balls.">CPU / locked</th>
               <th></th>
             </tr>
           </thead>
@@ -183,12 +184,16 @@
         <div class="lottery-3d" hidden aria-hidden="true">
           <canvas class="lottery-3d-canvas"></canvas>
         </div>
-        <div class="machine-orb" data-phase="ready" aria-hidden="true">
-          <div class="lottery-balls">
-            <i></i><i></i><i></i><i></i><i></i><i></i>
-            <i></i><i></i><i></i><i></i><i></i><i></i>
+        <div class="machine-illustration" aria-hidden="true">
+          <div class="machine-cap"><span></span></div>
+          <div class="machine-orb" data-phase="ready">
+            <div class="lottery-balls">
+              <i></i><i></i><i></i><i></i><i></i><i></i>
+              <i></i><i></i><i></i><i></i><i></i><i></i>
+            </div>
+            <div class="extracted-ball"></div>
           </div>
-          <div class="extracted-ball"></div>
+          <div class="machine-stand"><span></span></div>
         </div>
         <div class="winner-card">
           <p id="winnerPick" class="eyebrow">The next pick awaits</p>
@@ -204,7 +209,7 @@
           </select>
           <button id="skipAnimationBtn" class="button secondary" disabled>Skip Animation / Reveal All</button>
         </div>
-        <p class="helper-text">The machine shows one decorative ball per team; it does not visualize weighted odds or pick winners. Results are calculated before the reveal, and speed, skip, logos or 3D fallback never change the order. Reduced motion uses a still reveal.</p>
+        <p class="helper-text">The machine shows decorative balls, not weighted odds. CPU-locked teams receive no lottery balls and stay in their pre-lottery slots. Results are calculated before the reveal, and speed, skip, logos or 3D fallback never change the order. Reduced motion uses a still reveal.</p>
         <p id="statusText" class="status-text" role="status" aria-live="polite" aria-atomic="true">Add teams, confirm the settings, and start the draw.</p>
       </div>
     </section>

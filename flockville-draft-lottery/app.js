@@ -204,6 +204,7 @@ function sanitizeTeam(team, fallbackName = "") {
     owner: normalizeName(team.owner) || cleanName,
     previousTopThree: Boolean(team.previousTopThree),
     previousNumberOne: Boolean(team.previousNumberOne),
+    cpuLocked: Boolean(team.cpuLocked),
     winPct: toFiniteNumber(team.winPct),
     sos: toFiniteNumber(team.sos),
     headToHead: team.headToHead && typeof team.headToHead === "object" ? team.headToHead : {},
@@ -227,10 +228,14 @@ function sanitizeTeams(list) {
   return teams;
 }
 
-function sanitizeResults(results, teams) {
+function sanitizeResults(results, teams, seed = "") {
   if (!Array.isArray(results)) return [];
   const teamsById = new Map(teams.map((team) => [team.id, team]));
   const teamsByName = new Map(teams.map((team) => [team.name.toLowerCase(), team]));
+  const originalSlots = new Map(orderLotteryEntries(
+    teams.map((team, index) => ({ ...team, standingIndex: index })),
+    { seed },
+  ).map((team, index) => [team.id, index + 1]));
 
   return results
     .map((result, index) => {
@@ -242,13 +247,19 @@ function sanitizeResults(results, teams) {
       const teamByName = teamName ? teamsByName.get(teamName.toLowerCase()) : null;
       const resolvedTeam = teamById || teamByName;
       if (!resolvedTeam) return null;
+      const teamIndex = teams.findIndex((team) => team.id === resolvedTeam.id);
+      const standingIndex = Number.isInteger(result.standingIndex) && result.standingIndex >= 0
+        ? result.standingIndex : (originalSlots.get(resolvedTeam.id) || 1) - 1;
+      const originalSlot = Number.parseInt(result.originalSlot, 10);
 
       return {
         id: resolvedTeam.id,
         team: resolvedTeam.name,
         owner: normalizeName(result.owner) || resolvedTeam.owner,
-        standingIndex: Number.isFinite(result.standingIndex) ? result.standingIndex : teams.findIndex((t) => t.id === resolvedTeam.id),
-        balls: Number.isFinite(result.balls) ? result.balls : getBallCount(teams.findIndex((t) => t.id === resolvedTeam.id)),
+        standingIndex,
+        originalSlot: Number.isInteger(originalSlot) && originalSlot > 0 ? originalSlot : standingIndex + 1,
+        balls: Number.isFinite(result.balls) ? result.balls : getBallCount(teamIndex),
+        ...(result.cpuLocked === true ? { cpuLocked: true } : {}),
         previousTopThree: Boolean(result.previousTopThree),
         previousNumberOne: Boolean(result.previousNumberOne),
         pick: safePick,
@@ -278,6 +289,7 @@ function sanitizeSeasonHistory(list) {
               pick: Number.parseInt(pick.pick, 10) || 0,
               team: normalizeName(pick.team),
               owner: normalizeName(pick.owner),
+              ...(pick.cpuLocked === true ? { cpuLocked: true } : {}),
             }))
             .filter((pick) => pick.pick > 0 && pick.team)
             .sort((a, b) => a.pick - b.pick)
@@ -420,7 +432,9 @@ function sanitizeImportedPayload(payload) {
 
   return {
     teams: payloadTeams,
-    results: payload.lastRunMeta?.completed === false ? [] : sanitizeResults(payload.results, payloadTeams),
+    results: payload.lastRunMeta?.completed === false ? [] : sanitizeResults(
+      payload.results, payloadTeams, payload.seedEnabled ? normalizeName(payload.seedText) : "",
+    ),
     trades: sanitizeTrades(payload.trades),
     seasonHistory: sanitizeSeasonHistory(payload.seasonHistory),
     ruleHistory: sanitizeRuleHistory(payload.ruleHistory),
@@ -677,21 +691,26 @@ function renderTeams() {
 
   const protection = getProtection();
   const entriesById = new Map(buildLotteryEntries().map((entry) => [entry.id, entry]));
-  protection.teams.forEach((team, index) => {
+  const teamsBySlot = [...protection.teams].sort((a, b) =>
+    (entriesById.get(a.id)?.standingIndex ?? 0) - (entriesById.get(b.id)?.standingIndex ?? 0));
+  teamsBySlot.forEach((team, index) => {
+    const entry = entriesById.get(team.id);
+    const slot = (entry?.standingIndex ?? index) + 1;
     const row = document.createElement("tr");
     row.dataset.teamId = team.id;
 
     row.innerHTML = `
       <td>
         <button class="remove-btn move-up" title="Move up" ${locked ? "disabled" : ""}>↑</button>
-        <strong>${index + 1}</strong>
+        <strong>${slot}</strong>
         <button class="remove-btn move-down" title="Move down" ${locked ? "disabled" : ""}>↓</button>
       </td>
       <td><select class="team-name-edit" aria-label="${escapeHtml(team.name)} team name" ${locked ? "disabled" : ""}></select>${buildTieBreakBadge(entriesById.get(team.id) || {})}</td>
       <td><input class="owner-edit" aria-label="${escapeHtml(team.name)} pick owner" value="${escapeHtml(team.owner)}" ${locked ? "disabled" : ""} /></td>
-      <td><strong>${getBallCount(index)}</strong></td>
+      <td><strong>${entry?.balls ?? getBallCount(index)}</strong></td>
       <td><input aria-label="${escapeHtml(team.name)} previous top three" class="inline-check previous-top-three" type="checkbox" ${team.previousTopThree ? "checked" : ""} ${locked || protection.automatic || hasProtectionOverride("previousTopThree") ? "disabled" : ""} /></td>
       <td><input aria-label="${escapeHtml(team.name)} previous number one" class="inline-check previous-number-one" type="checkbox" ${team.previousNumberOne ? "checked" : ""} ${locked || protection.automatic || hasProtectionOverride("previousNumberOne") ? "disabled" : ""} /></td>
+      <td><input aria-label="${escapeHtml(team.name)} CPU locked" class="inline-check cpu-lock" type="checkbox" ${team.cpuLocked ? "checked" : ""} ${locked ? "disabled" : ""} /></td>
       <td><button class="remove-btn remove-team" ${locked ? "disabled" : ""}>Remove</button></td>
     `;
 
@@ -729,6 +748,9 @@ function renderTeams() {
 
     row.querySelector(".previous-number-one").addEventListener("change", (event) => {
       updateTeam(team.id, "previousNumberOne", event.target.checked);
+    });
+    row.querySelector(".cpu-lock").addEventListener("change", (event) => {
+      updateTeam(team.id, "cpuLocked", event.target.checked);
     });
 
     els.teamTableBody.appendChild(row);
@@ -772,7 +794,7 @@ function renderResults(revealedPick = null) {
         <div class="result-pick">Pick #${result.pick}</div>
         ${buildMovementBadge(originalSlot, result.pick)}
       </div>
-      <div class="result-team">${escapeHtml(winnerTeam)}</div>
+      <div class="result-team">${escapeHtml(winnerTeam)} ${buildCpuBadge(result)}</div>
       <div class="result-owner">${escapeHtml(ownerText)}</div>
       ${originalSlot ? `<div class="result-original" title="Where this team's pick sat in the draft order before the lottery (worst record = #1).">Pre-lottery slot: #${originalSlot}</div>` : ""}
       ${result.note ? `<div class="result-note">${escapeHtml(result.note)}</div>` : ""}
@@ -793,7 +815,12 @@ function renderResults(revealedPick = null) {
   els.copyLotteryAnnouncementBtn.disabled = !hasResults;
 }
 
+function buildCpuBadge(entry) {
+  return entry?.cpuLocked ? '<span class="cpu-badge">CPU / locked</span>' : "";
+}
+
 function getRevealLabel(result) {
+  if (result.cpuLocked) return "CPU-locked placement";
   if (result.note?.includes("Bottom-Four Protection")) return "Protected placement";
   return result.pick > (state.lastRunMeta?.lotteryPickCount ?? state.results.length)
     ? "Standings placement" : "Lottery reveal";
@@ -845,7 +872,7 @@ function renderLotteryStage() {
   els.winnerPick.textContent = result ? `${getRevealLabel(result)} · Pick #${result.pick}` : "The next pick awaits";
   els.machineText.textContent = result ? result.team : "Ready for draft night";
   els.winnerOwner.textContent = result
-    ? result.owner !== result.team ? `Pick owned by ${result.owner}` : "Original team owns this pick"
+    ? `${result.owner !== result.team ? `Pick owned by ${result.owner}` : "Original team owns this pick"}${result.cpuLocked ? " · CPU / locked" : ""}`
     : "Original team and pick owner will appear here.";
 }
 
@@ -897,6 +924,7 @@ function renderRequiredTrades() {
 }
 
 function getBallGroupLabel(ballCount) {
+  if (ballCount === 0) return "CPU-locked — no lottery balls";
   return `${ballCount}-ball tier`;
 }
 
@@ -957,7 +985,7 @@ function renderLotteryTransparency() {
       (entry) => `
         <tr>
           <td>#${entry.slot}</td>
-          <td>${escapeHtml(entry.team)} ${buildTieBreakBadge(entry)}</td>
+          <td>${escapeHtml(entry.team)} ${buildCpuBadge(entry)} ${buildTieBreakBadge(entry)}</td>
           <td>${entry.owner && entry.owner !== entry.team ? escapeHtml(entry.owner) : '<span class="muted-text">Same team</span>'}</td>
           <td>${entry.balls}</td>
           <td>
@@ -1008,7 +1036,7 @@ function formatTime(isoString) {
 function renderAuditPanel() {
   const meta = state.lastRunMeta;
   const settings = getSettingsFromUi();
-  const totalBalls = state.teams.reduce((sum, _team, index) => sum + getBallCount(index), 0);
+  const totalBalls = buildLotteryEntries().reduce((sum, entry) => sum + entry.balls, 0);
 
   const rows = [
     ["Last run", meta?.timestamp ? formatTime(meta.timestamp) : "Not run yet"],
@@ -1050,7 +1078,7 @@ function renderSeasonHistory() {
     const finalOrderItems = (season.finalOrder || [])
       .map((pick) => {
         const ownerNote = pick.owner && pick.owner !== pick.team ? ` (${escapeHtml(pick.owner)})` : "";
-        return `<li>Pick #${pick.pick}: ${escapeHtml(pick.team)}${ownerNote}</li>`;
+        return `<li>Pick #${pick.pick}: ${escapeHtml(pick.team)} ${buildCpuBadge(pick)}${ownerNote}</li>`;
       })
       .join("");
 
@@ -1059,7 +1087,7 @@ function renderSeasonHistory() {
         <p class="history-item-title">${season.year ? `${season.year} season · ` : ""}${escapeHtml(formatTime(season.finalizedAt))}</p>
         <button class="button secondary copy-season-btn" data-season-idx="${idx}">Copy Announcement</button>
       </div>
-      <p class="history-item-line"><strong>#1:</strong> ${escapeHtml(season.numberOne || "Unknown")}</p>
+      <p class="history-item-line"><strong>#1:</strong> ${escapeHtml(season.numberOne || "Unknown")} ${buildCpuBadge(season.finalOrder?.find((pick) => pick.pick === 1))}</p>
       <p class="history-item-line"><strong>Top 3:</strong> ${escapeHtml((season.topThree || []).join(", ") || "N/A")}</p>
       <p class="history-item-line history-rules-ref"><strong>Rules:</strong> ${escapeHtml(ruleInfo)}</p>
       ${finalOrderItems ? `
@@ -1088,7 +1116,7 @@ function buildHistoryDetailMarkup(record) {
       (pick) => `
         <tr>
           <td><strong>#${pick.pick}</strong></td>
-          <td>${escapeHtml(pick.team)}</td>
+          <td>${escapeHtml(pick.team)} ${buildCpuBadge(pick)}</td>
           <td>${pick.owner && pick.owner !== pick.team ? escapeHtml(pick.owner) : '<span class="muted-text">Same team</span>'}</td>
           <td title="Original slot in the pre-lottery draft order (worst record is #1).">${pick.originalSlot ? `#${pick.originalSlot}` : "—"}</td>
           <td>${buildMovementBadge(pick.originalSlot, pick.pick) || "—"}</td>
@@ -1104,7 +1132,7 @@ function buildHistoryDetailMarkup(record) {
       (entry) => `
         <tr>
           <td>${entry.slot ? `#${entry.slot}` : "—"}</td>
-          <td>${escapeHtml(entry.team)}</td>
+          <td>${escapeHtml(entry.team)} ${buildCpuBadge(entry)}</td>
           <td>${entry.owner && entry.owner !== entry.team ? escapeHtml(entry.owner) : '<span class="muted-text">Same team</span>'}</td>
           <td>${entry.balls ?? "Unknown"}</td>
           <td>${entry.percent === null ? "Unknown" : `${entry.percent.toFixed(1)}%`}</td>
@@ -1118,7 +1146,7 @@ function buildHistoryDetailMarkup(record) {
       <div class="audit-row"><strong>Season:</strong> <span>${record.year}</span></div>
       <div class="audit-row"><strong>Source:</strong> <span>${record.source === "manual" ? "Manually entered / corrected" : record.source === "dry-run" ? "Saved dry-run simulation" : "Saved draw"} · ${record.completeness === "top-three" ? "Partial top-three only" : "Complete order"}</span></div>
       <div class="audit-row"><strong>Lottery run:</strong> <span>${record.runAt ? escapeHtml(formatTime(record.runAt)) : "Unknown — not rerun"}</span></div>
-      <div class="audit-row"><strong>#1 pick:</strong> <span>${escapeHtml(record.finalOrder[0]?.team || "Unknown")}</span></div>
+      <div class="audit-row"><strong>#1 pick:</strong> <span>${escapeHtml(record.finalOrder[0]?.team || "Unknown")} ${buildCpuBadge(record.finalOrder[0])}</span></div>
       <div class="audit-row"><strong>Rules:</strong> <span>${record.settings ? escapeHtml(formatRuleSettings(record.settings)) : "Unknown"}</span></div>
       ${record.seed ? `<div class="audit-row"><strong>Seed:</strong> <span>${escapeHtml(record.seed)}</span></div>` : ""}
     </div>
@@ -1471,7 +1499,7 @@ function buildLotteryEntries() {
   return ordered.map((team, index) => ({
     ...team,
     standingIndex: index,
-    balls: getBallCount(index),
+    balls: team.cpuLocked ? 0 : getBallCount(index),
     tieBreak: descriptions.find((entry) => entry.id === team.id)?.reason || "",
     tieOpponents: descriptions.find((entry) => entry.id === team.id)?.opponents || [],
     tieBreaks: descriptions.filter((entry) => entry.id === team.id),
@@ -1479,6 +1507,7 @@ function buildLotteryEntries() {
 }
 
 function isEligibleForPick(entry, pick, remainingEntries) {
+  if (entry.cpuLocked) return false;
   const topThreeCooldown = els.topThreeCooldownToggle.checked;
   const noConsecutiveOne = els.consecutiveOneToggle.checked;
 
@@ -1502,14 +1531,14 @@ function applyBottomFourProtection(results, allEntries) {
   const top = results.slice(0, maxProtectedPick);
   const rest = results.slice(maxProtectedPick);
 
-  const protectedInRest = rest.filter((r) => protectedIds.has(r.id));
+  const protectedInRest = rest.filter((r) => !r.cpuLocked && protectedIds.has(r.id));
 
   if (protectedInRest.length === 0) return results;
 
   const adjusted = [...results];
   protectedInRest.forEach((entry) => {
     const destination = adjusted.findLastIndex((result, index) =>
-      index >= 3 && index < maxProtectedPick && !protectedIds.has(result.id));
+      index >= 3 && index < maxProtectedPick && !result.cpuLocked && !protectedIds.has(result.id));
     const source = adjusted.findIndex((result) => result.id === entry.id);
     if (destination < 0) throw new Error("Bottom-four protection cannot be satisfied.");
     [adjusted[destination], adjusted[source]] = [adjusted[source], adjusted[destination]];
@@ -1555,36 +1584,50 @@ function runLotteryCalculation(randomFn) {
 
   const lotteryCount = Math.min(safeRequested, entries.length);
   const remaining = [...entries];
-  const selected = [];
+  const selected = new Array(entries.length);
+  const cpuAtSlot = new Map(entries.filter((entry) => entry.cpuLocked)
+    .map((entry) => [entry.standingIndex + 1, entry]));
 
-  for (let pick = 1; pick <= lotteryCount; pick += 1) {
-    const eligible = remaining.filter((entry) => isEligibleForPick(entry, pick, remaining));
-    const winner = weightedRandomTeam(eligible, randomFn);
-    if (!winner) throw new Error(`No eligible team for Pick #${pick}. Review protection flags or disable the relevant rule explicitly.`);
-
-    let note = "";
-    if (pick === 4 && winner.previousTopThree && els.topThreeCooldownToggle.checked) {
-      note = "Top-3 cooldown applied.";
+  for (let pick = 1; pick <= entries.length; pick += 1) {
+    const lockedEntry = cpuAtSlot.get(pick);
+    if (lockedEntry) {
+      selected[pick - 1] = {
+        ...lockedEntry,
+        team: lockedEntry.name,
+        pick,
+        originalSlot: pick,
+        note: "CPU-locked to pre-lottery slot.",
+      };
+      remaining.splice(remaining.findIndex((entry) => entry.id === lockedEntry.id), 1);
+      continue;
     }
 
-    selected.push({ ...winner, team: winner.name, pick, note });
+    let winner;
+    let note = "";
+    if (pick <= lotteryCount) {
+      const eligible = remaining.filter((entry) => isEligibleForPick(entry, pick, remaining));
+      winner = weightedRandomTeam(eligible, randomFn);
+      if (!winner) throw new Error(`No eligible team for Pick #${pick}. Review protection flags or disable the relevant rule explicitly.`);
+      if (pick === 4 && winner.previousTopThree && els.topThreeCooldownToggle.checked) {
+        note = "Top-3 cooldown applied.";
+      }
+    } else {
+      const orderedRemaining = orderLotteryEntries(remaining, {
+        seed: state.seedEnabled ? state.seedText : "",
+      });
+      const index = orderedRemaining.findIndex((entry) => isEligibleForPick(entry, pick, orderedRemaining));
+      if (index < 0) throw new Error(`No eligible team for Pick #${pick}. Review protection flags or disable the relevant rule explicitly.`);
+      [winner] = orderedRemaining.splice(index, 1);
+      note = "Placed by reverse regular-season record.";
+    }
+    selected[pick - 1] = {
+      ...winner,
+      team: winner.name,
+      pick,
+      originalSlot: winner.standingIndex + 1,
+      note,
+    };
     remaining.splice(remaining.findIndex((entry) => entry.id === winner.id), 1);
-  }
-
-  const orderedRemaining = orderLotteryEntries(remaining, {
-    seed: state.seedEnabled ? state.seedText : "",
-  });
-  while (orderedRemaining.length) {
-    const pick = selected.length + 1;
-    const index = orderedRemaining.findIndex((entry) => isEligibleForPick(entry, pick, orderedRemaining));
-    if (index < 0) throw new Error(`No eligible team for Pick #${pick}. Review protection flags or disable the relevant rule explicitly.`);
-    const [entry] = orderedRemaining.splice(index, 1);
-    selected.push({
-      ...entry,
-      team: entry.name,
-      pick: selected.length + 1,
-      note: "Placed by reverse regular-season record.",
-    });
   }
 
   const adjusted = applyBottomFourProtection(selected, entries);
@@ -1609,7 +1652,7 @@ function buildRunMeta(seedUsed = "") {
       noConsecutiveNumberOne: settings.noConsecutiveNumberOne,
     },
     teamCount: state.teams.length,
-    totalBalls: state.teams.reduce((sum, _team, index) => sum + getBallCount(index), 0),
+    totalBalls: buildLotteryEntries().reduce((sum, entry) => sum + entry.balls, 0),
     seedEnabled: state.seedEnabled,
     seed: seedUsed,
   };
@@ -1627,6 +1670,7 @@ function buildHistoryRecord(results, runContext) {
       originalSlot: getOriginalSlot(result),
       balls: result.balls,
       note: result.note,
+      ...(result.cpuLocked ? { cpuLocked: true } : {}),
     })),
     odds: runContext.odds,
     totalBalls: runContext.totalBalls,
@@ -1860,6 +1904,7 @@ function startLottery() {
       owner: entry.owner,
       balls: entry.balls,
       percent: entry.percent,
+      ...(entry.cpuLocked ? { cpuLocked: true } : {}),
     })),
   };
 
@@ -1882,7 +1927,7 @@ function buildDiscordText() {
     "",
     ...state.results.map((result) => {
       const owner = result.owner !== result.team ? ` — Pick owned by **${result.owner}**` : "";
-      return `**#${result.pick} — ${result.team}**${owner}`;
+      return `**#${result.pick} — ${result.team}${result.cpuLocked ? " (CPU / locked)" : ""}**${owner}`;
     }),
     "",
   ];
@@ -2133,7 +2178,10 @@ function finalizeSeason(reviewedTrades = state.trades, alreadyConfirmed = false)
     finalizedAt: new Date().toISOString(),
     numberOne: state.results[0]?.team || "Unknown",
     topThree: state.results.slice(0, 3).map((result) => result.team),
-    finalOrder: state.results.map((result) => ({ pick: result.pick, team: result.team, owner: result.owner })),
+    finalOrder: state.results.map((result) => ({
+      pick: result.pick, team: result.team, owner: result.owner,
+      ...(result.cpuLocked ? { cpuLocked: true } : {}),
+    })),
     seed: state.lastRunMeta?.seedEnabled ? state.lastRunMeta.seed : "",
     ruleVersionId: getActiveRuleVersion()?.id || "",
     runMeta: state.lastRunMeta || null,
@@ -2418,7 +2466,7 @@ function buildSingleSeasonDiscordText(season) {
 
   (season.finalOrder || []).forEach((pick) => {
     const ownerNote = pick.owner && pick.owner !== pick.team ? ` — owned by **${pick.owner}**` : "";
-    lines.push(`#${pick.pick} — ${pick.team}${ownerNote}`);
+    lines.push(`#${pick.pick} — ${pick.team}${pick.cpuLocked ? " (CPU / locked)" : ""}${ownerNote}`);
   });
 
   if (season.seed) {
@@ -2679,7 +2727,8 @@ function createDryRun(randomFn = getRandomSource().randomFn) {
       teams: state.teams,
       finalOrder: results.map((entry) => ({ ...entry, originalSlot: getOriginalSlot(entry) })),
       odds: odds.entries.map((entry) => ({
-        slot: entry.standingIndex + 1, team: entry.name, owner: entry.owner, balls: entry.balls, percent: entry.percent,
+        slot: entry.standingIndex + 1, team: entry.name, owner: entry.owner, balls: entry.balls,
+        percent: entry.percent, ...(entry.cpuLocked ? { cpuLocked: true } : {}),
       })),
       totalBalls: odds.totalBalls, trades: getRequiredTrades(results),
       settings: getSettingsFromUi(), seed: meta.seedEnabled ? meta.seed : "",
@@ -2783,11 +2832,15 @@ function renderMobileTeams() {
   const ownerNames = [...new Set([...state.teams.map((team) => team.name), ...state.teams.map((team) => team.owner), ...NFL_TEAMS])];
   const options = (names, selected) => names.map((name) =>
     `<option value="${escapeHtml(name)}" ${name === selected ? "selected" : ""}>${escapeHtml(name)}</option>`).join("");
-  protection.teams.forEach((team, index) => {
+  const teamsBySlot = [...protection.teams].sort((a, b) =>
+    (entriesById.get(a.id)?.standingIndex ?? 0) - (entriesById.get(b.id)?.standingIndex ?? 0));
+  teamsBySlot.forEach((team, index) => {
+    const entry = entriesById.get(team.id);
+    const slot = (entry?.standingIndex ?? index) + 1;
     const card = document.createElement("article");
     card.className = "mobile-team-card";
     card.dataset.teamId = team.id;
-    card.innerHTML = `<div class="mobile-team-heading"><strong>#${index + 1} ${escapeHtml(team.name)}</strong><span>${getBallCount(index)} balls</span></div>
+    card.innerHTML = `<div class="mobile-team-heading"><strong>#${slot} ${escapeHtml(team.name)}</strong><span>${entry?.balls ?? getBallCount(index)} balls</span></div>
       ${buildTieBreakBadge(entriesById.get(team.id) || {})}
       <div class="mobile-team-fields">
         <label>Team name <select class="team-name-edit mobile-name" aria-label="${escapeHtml(team.name)} team name" ${locked ? "disabled" : ""}>
@@ -2800,6 +2853,8 @@ function renderMobileTeams() {
           ${team.previousTopThree ? "checked" : ""} ${locked || protection.automatic || hasProtectionOverride("previousTopThree") ? "disabled" : ""}></label>
         <label>Previous #1 <input class="inline-check previous-number-one" type="checkbox" aria-label="${escapeHtml(team.name)} previous number one"
           ${team.previousNumberOne ? "checked" : ""} ${locked || protection.automatic || hasProtectionOverride("previousNumberOne") ? "disabled" : ""}></label>
+        <label>CPU / locked <input class="inline-check cpu-lock" type="checkbox" aria-label="${escapeHtml(team.name)} CPU locked"
+          ${team.cpuLocked ? "checked" : ""} ${locked ? "disabled" : ""}></label>
       </div>
       <div class="button-row">
         <button class="button secondary mobile-team-reorder mobile-up" aria-label="Move ${escapeHtml(team.name)} up" ${isLocked() || !index ? "disabled" : ""}>↑ Up</button>
@@ -2814,6 +2869,7 @@ function renderMobileTeams() {
     });
     card.querySelector(".previous-top-three").addEventListener("change", (event) => updateTeam(team.id, "previousTopThree", event.target.checked));
     card.querySelector(".previous-number-one").addEventListener("change", (event) => updateTeam(team.id, "previousNumberOne", event.target.checked));
+    card.querySelector(".cpu-lock").addEventListener("change", (event) => updateTeam(team.id, "cpuLocked", event.target.checked));
     card.querySelector(".mobile-up").addEventListener("click", () => moveTeam(team.id, -1));
     card.querySelector(".mobile-down").addEventListener("click", () => moveTeam(team.id, 1));
     card.querySelector(".mobile-remove").addEventListener("click", () => removeTeam(team.id));

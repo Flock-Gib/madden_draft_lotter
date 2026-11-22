@@ -63,6 +63,8 @@ async function expectSavedOnce(page, expected) {
   expect(saved.active).toBeNull();
   expect(saved.stage).toBeNull();
   await expect(page.locator("#startLotteryBtn")).toBeEnabled();
+  await expect(page.locator(".machine-illustration")).toBeVisible();
+  await expect(page.locator(".lottery-3d")).toBeHidden();
 }
 
 // Decodes a canvas screenshot in the page and reports brightness statistics.

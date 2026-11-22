@@ -55,6 +55,21 @@ test("export round-trips through extractHistoryFromPayload", () => {
   assert.deepEqual(history.extractHistoryFromPayload(exported), h);
 });
 
+test("CPU lock metadata survives saved history and JSON export round-trips", () => {
+  const saved = history.sanitizeHistory([record(2026, {
+    finalOrder: [
+      { pick: 1, team: "B", owner: "Outside Owner", originalSlot: 1, balls: 0, cpuLocked: true },
+      { pick: 2, team: "A", owner: "A", originalSlot: 2 },
+    ],
+    odds: [{ slot: 1, team: "B", owner: "Outside Owner", balls: 0, percent: 0, cpuLocked: true }],
+    teams: [{ name: "B", owner: "Outside Owner", cpuLocked: true }],
+  })]);
+  assert.equal(saved["2026"].finalOrder[0].cpuLocked, true);
+  assert.equal(saved["2026"].odds[0].cpuLocked, true);
+  assert.equal(saved["2026"].teams[0].cpuLocked, true);
+  assert.equal(history.extractHistoryFromPayload(history.buildHistoryExport(saved))["2026"].finalOrder[0].cpuLocked, true);
+});
+
 const savedAt = "2026-02-01T00:00:00.000Z";
 const manualInput = (extra = {}) => ({
   year: 2025,
