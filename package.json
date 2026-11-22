@@ -8,6 +8,7 @@
     "test:browser": "playwright test"
   },
   "devDependencies": {
-    "@playwright/test": "1.64.0"
+    "@playwright/test": "1.64.0",
+    "three": "0.160.0"
   }
 }

@@ -548,8 +548,8 @@ tbody tr:focus-within {
 }
 
 .lottery-3d {
-  width: min(520px, 100%);
-  height: clamp(270px, 44vw, 390px);
+  width: min(560px, 100%);
+  height: clamp(300px, 56vw, 500px);
   overflow: hidden;
 }
 
@@ -692,6 +692,34 @@ tbody tr:focus-within {
 
 .machine-orb[data-phase="revealed"] ~ .winner-card {
   animation: reveal 0.35s ease-out;
+}
+
+.team-badge {
+  display: inline-grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  margin: 4px auto 0;
+  overflow: hidden;
+  border: 5px solid var(--team-secondary, var(--purple));
+  border-radius: 50%;
+  color: var(--team-ink, var(--purple));
+  background: #fff;
+  box-shadow: 0 0 0 4px var(--team-primary, var(--purple)), 0 8px 18px rgba(72, 42, 117, 0.18);
+  font-family: "Oswald", "Arial Black", sans-serif;
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.team-badge[hidden] {
+  display: none;
+}
+
+.team-badge img {
+  width: 78%;
+  height: 78%;
+  object-fit: contain;
 }
 
 #winnerPick {

@@ -192,6 +192,7 @@
         </div>
         <div class="winner-card">
           <p id="winnerPick" class="eyebrow">The next pick awaits</p>
+          <span id="winnerBadge" class="team-badge" aria-hidden="true" hidden></span>
           <h3 id="machineText" class="machine-text">Ready for draft night</h3>
           <p id="winnerOwner">Original team and pick owner will appear here.</p>
         </div>
@@ -203,7 +204,7 @@
           </select>
           <button id="skipAnimationBtn" class="button secondary" disabled>Skip Animation / Reveal All</button>
         </div>
-        <p class="helper-text">Balls are decorative, not live odds. Speed and skip never change the order. Reduced motion uses a prompt, still reveal.</p>
+        <p class="helper-text">The machine shows one decorative ball per team; it does not visualize weighted odds or pick winners. Results are calculated before the reveal, and speed, skip, logos or 3D fallback never change the order. Reduced motion uses a still reveal.</p>
         <p id="statusText" class="status-text" role="status" aria-live="polite" aria-atomic="true">Add teams, confirm the settings, and start the draw.</p>
       </div>
     </section>
@@ -509,6 +510,8 @@
   <script src="lottery-trades.js"></script>
   <script src="lottery-history.js"></script>
   <script src="lottery-tools.js"></script>
+  <script src="lottery-team-branding.js"></script>
+  <script src="lottery-ball-sim.js"></script>
   <script src="lottery-stage-3d.js"></script>
   <script src="app.js"></script>
 </body>

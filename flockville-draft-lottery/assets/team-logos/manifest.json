@@ -1,0 +1,4 @@
+{
+  "notes": "Optional team logo overrides for the 3D lottery balls and winner card. No NFL or team logos ship with this app. Only add images you own or have permission to use. Keys may be a team name, nickname, alias or abbreviation (e.g. \"Ravens\", \"Baltimore Ravens\", \"BAL\") or a custom team name. Values are paths relative to index.html (e.g. \"assets/team-logos/ravens.png\") or https:// URLs that send CORS headers.",
+  "logos": {}
+}
