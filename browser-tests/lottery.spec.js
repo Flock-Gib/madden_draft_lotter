@@ -311,8 +311,8 @@ test("checksum mismatch warns but does not block valid history", async ({ page }
 test("tie-break indicators explain imported equal records", async ({ page }, testInfo) => {
   const payload = {
     teams: [
-      { id: "a", name: "Arizona Cardinals", owner: "Arizona Cardinals", winPct: 0.25, sos: 0.4 },
       { id: "b", name: "Atlanta Falcons", owner: "Atlanta Falcons", winPct: 0.25, sos: 0.5 },
+      { id: "a", name: "Arizona Cardinals", owner: "Arizona Cardinals", winPct: 0.25, sos: 0.4 },
     ],
     settings: { topThreeCooldown: false, noConsecutiveNumberOne: false, bottomFourProtection: false },
   };
@@ -325,6 +325,63 @@ test("tie-break indicators explain imported equal records", async ({ page }, tes
   await expect(page.locator(`${container} .tie-break-badge`).first()).toContainText("Standings tie-break:");
   await expect(page.locator(`${container} .tie-break-badge`).first()).toHaveAttribute("title", /Strength of Schedule/);
   await expect(page.locator(`${container} .tie-break-badge`).first()).toHaveAttribute("title", /not the lottery draw/);
+  if (testInfo.project.name === "mobile") {
+    await expect(page.locator("#mobileTeamList > *").first().locator(".mobile-team-heading strong"))
+      .toHaveText("#1 Arizona Cardinals");
+  } else {
+    await expect(page.locator("#teamTableBody tr").first().locator("td").first()).toContainText("1");
+    await expect(page.locator("#teamTableBody tr").first().locator(".team-name-edit")).toHaveValue("Arizona Cardinals");
+  }
+});
+
+test("CPU-locked setup controls and result/history labels work on desktop and mobile", async ({ page }, testInfo) => {
+  test.setTimeout(90_000);
+  await demo(page);
+  await expect(page.locator(".machine-illustration")).toBeVisible();
+  await page.evaluate(() => { window.createLotteryStage3d = undefined; });
+  const team = testInfo.project.name === "mobile"
+    ? page.locator("#mobileTeamList > *").first()
+    : page.locator("#teamTableBody tr").first();
+  const cpuLock = team.locator(".cpu-lock");
+  await expect(cpuLock).toBeVisible();
+  await expect(cpuLock).toHaveAttribute("aria-label", "Raiders CPU locked");
+  await cpuLock.check();
+  await team.locator(".previous-top-three").check();
+  await team.locator(".previous-number-one").check();
+
+  if (testInfo.project.name === "mobile") {
+    await team.locator(".mobile-owner").selectOption("Baltimore Ravens");
+  } else {
+    await team.locator(".owner-edit").fill("Baltimore Ravens");
+    await team.locator(".owner-edit").press("Tab");
+  }
+  await page.locator("#setupLockBtn").click();
+  await expect(team.locator(".cpu-lock")).toBeDisabled();
+  await page.locator("#startLotteryBtn").click();
+  await page.locator("#skipAnimationBtn").click();
+  await expect(page.locator("#statusText")).toContainText("complete", { timeout: 60_000 });
+
+  const firstResult = page.locator("#resultsGrid .result-card").first();
+  await expect(firstResult).toContainText("CPU / locked");
+  await expect(firstResult).toContainText("Pick owned by Baltimore Ravens");
+  await expect(firstResult).toContainText("Pre-lottery slot: #1");
+  await expect(page.locator(".machine-illustration")).toBeVisible();
+  await expect(page.locator(".lottery-3d")).toBeHidden();
+  await expect(page.locator("#historyDetail")).toContainText("CPU / locked");
+
+  const historyExport = await download(page, "#exportHistoryBtn");
+  const record = Object.values(JSON.parse(historyExport.content).lotteryHistory)[0];
+  expect(record.finalOrder[0].cpuLocked).toBe(true);
+  expect(record.finalOrder[0].owner).toBe("Baltimore Ravens");
+  expect(record.finalOrder[0].originalSlot).toBe(1);
+  expect(record.odds.find((entry) => entry.team === "Raiders")).toMatchObject({
+    cpuLocked: true, balls: 0, percent: 0, slot: 1,
+  });
+  await page.reload();
+  const reloadedTeam = testInfo.project.name === "mobile"
+    ? page.locator("#mobileTeamList > *").first()
+    : page.locator("#teamTableBody tr").first();
+  await expect(reloadedTeam.locator(".cpu-lock")).toBeChecked();
 });
 
 test("hidden archived history remains exportable and supplies protection", async ({ page }) => {

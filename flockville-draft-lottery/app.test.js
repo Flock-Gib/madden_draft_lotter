@@ -954,3 +954,84 @@ test("season input blur refreshes automatic flags in place and preserves recorde
   card.querySelector(".mobile-down").listeners.click();
   assert.equal(a.state.teams[0].name, "Team 1");
 });
+
+test("CPU locks keep original slots, receive no balls, override only their own protections, and retain traded ownership", () => {
+  const a = app();
+  a.state.manualProtectionYear = 2026;
+  Object.assign(a.state.teams[0], {
+    cpuLocked: true,
+    previousTopThree: true,
+    previousNumberOne: true,
+    owner: "Outside Owner",
+  });
+  a.state.teams[1].previousTopThree = true;
+  a.state.teams[2].previousNumberOne = true;
+
+  const odds = a.evaluate("buildLotteryTransparencyData()");
+  const lockedOdds = odds.entries.find((entry) => entry.id === "0");
+  assert.equal(lockedOdds.standingIndex + 1, 1);
+  assert.equal(lockedOdds.balls, 0);
+  assert.equal(lockedOdds.percent, 0);
+  assert.equal(odds.totalBalls, 17);
+  assert.equal(odds.eligibleBalls, 11);
+
+  const results = a.evaluate("runLotteryCalculation(() => 0)");
+  a.context.cpuResults = results;
+  assert.equal(results[0].team, "Team 0");
+  assert.equal(results[0].pick, 1);
+  assert.equal(results[0].originalSlot, 1);
+  assert.equal(results[0].cpuLocked, true);
+  assert.equal(results[0].owner, "Outside Owner");
+  assert.ok(results.find((entry) => entry.team === "Team 1").pick > 3);
+  assert.ok(results.find((entry) => entry.team === "Team 2").pick > 1);
+  a.state.results = results;
+  a.state.lastRunMeta = a.evaluate("buildRunMeta('cpu-test')");
+  a.state.lastRunMeta.completed = true;
+  a.evaluate("persistState()");
+  const restored = app(a.storage);
+  restored.evaluate("restoreStateFromStorage()");
+  assert.equal(restored.state.teams[0].cpuLocked, true);
+  assert.equal(restored.state.results[0].cpuLocked, true);
+  assert.equal(restored.state.results[0].originalSlot, 1);
+
+  const record = history.sanitizeRecord(a.evaluate("buildHistoryRecord(cpuResults, { year: 2026, totalBalls: 17, odds: [] })"));
+  assert.equal(record.finalOrder[0].cpuLocked, true);
+  assert.equal(record.finalOrder[0].originalSlot, 1);
+  assert.equal(record.finalOrder[0].owner, "Outside Owner");
+});
+
+test("CPU locks remain in their exact slots when bottom-four protection swaps nearby picks", () => {
+  const a = app();
+  a.state.manualProtectionYear = 2026;
+  a.state.teams = Array.from({ length: 12 }, (_, index) => ({
+    id: String(index), name: `Team ${index}`, owner: `Team ${index}`,
+    previousTopThree: false, previousNumberOne: false,
+    cpuLocked: index === 7,
+  }));
+  const results = a.evaluate("runLotteryCalculation(() => 0.999)");
+  assert.equal(results[7].team, "Team 7");
+  assert.equal(results[7].pick, 8);
+  assert.equal(results[7].originalSlot, 8);
+  assert.equal(results[7].cpuLocked, true);
+  assert.ok(results.slice(0, 8).some((entry) => ["Team 0", "Team 1", "Team 2", "Team 3"].includes(entry.team)));
+});
+
+test("imported results without slot metadata use standings and tie-break ordering", () => {
+  const a = app();
+  a.context.payload = {
+    teams: [
+      { id: "better", name: "Team 0", winPct: 0.5 },
+      { id: "tie-later", name: "Team 1", winPct: 0.25, sos: 0.5 },
+      { id: "tie-earlier", name: "Team 2", winPct: 0.25, sos: 0.4 },
+    ],
+    results: [
+      { pick: 1, team: "Team 2" },
+      { pick: 2, team: "Team 1" },
+      { pick: 3, team: "Team 0" },
+    ],
+  };
+  const restored = a.evaluate("sanitizeImportedPayload(payload)");
+  assert.deepEqual(restored.results.map((entry) => [entry.team, entry.originalSlot]), [
+    ["Team 2", 1], ["Team 1", 2], ["Team 0", 3],
+  ]);
+});

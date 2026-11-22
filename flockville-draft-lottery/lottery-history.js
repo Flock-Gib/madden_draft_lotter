@@ -50,6 +50,7 @@
       movement: safeOriginal === null ? (manual ? null : 0) : safeOriginal - pick,
       balls: manual ? optionalNumber(entry.balls) : toNumber(entry.balls, 0),
       note: normalizeName(entry.note),
+      ...(entry.cpuLocked === true ? { cpuLocked: true } : {}),
     };
   }
 
@@ -78,6 +79,7 @@
       owner: normalizeName(entry.owner) || team,
       balls: manual ? optionalNumber(entry.balls) : toNumber(entry.balls, 0),
       percent: manual ? optionalNumber(entry.percent) : toNumber(entry.percent, 0),
+      ...(entry.cpuLocked === true ? { cpuLocked: true } : {}),
     };
   }
 
@@ -147,6 +149,7 @@
       winPct: metric(team.winPct),
       sos: metric(team.sos),
       headToHead,
+      ...(team.cpuLocked === true ? { cpuLocked: true } : {}),
     };
   }
 

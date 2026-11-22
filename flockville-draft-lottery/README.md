@@ -9,6 +9,7 @@ A static web application for running the Flockville Madden League draft lottery.
 - Bottom-four protection
 - Top-3 cooldown
 - No consecutive #1 pick
+- Optional per-team CPU locks that keep an original team in its pre-lottery slot without lottery balls
 - Traded pick ownership
 - Bright, accessible draft-night stage with decorative ball mixing and team/owner reveals
 - Discord-ready results
@@ -104,7 +105,7 @@ If the exact prior year is missing, the app warns and requires **Use manual prot
 Older full-state backups remain compatible. **Import History** can expose their finalized orders in **Older finalized season** without changing live setup/results. Select an order, click **Load Order for Year Assignment**, assign the actual year (never guessed), review the record type and save. Imported unassigned candidates are available until reload or another import; save each needed order first. The legacy finalized archive/import candidate list retains its existing 12-entry limit; year-keyed Past Lotteries is not limited to 12.
 
 1. **Enter teams & standings** — add non-playoff teams worst-to-best and set the pick owner for any traded pick.
-2. **Review odds** — the odds table shows each team's pre-lottery slot, pick owner, balls, and chance on the first draw. Lock setup when it looks right.
+2. **Review odds** — the odds table shows each team's pre-lottery slot, pick owner, balls, and chance on the first draw. Mark **CPU / locked** for original teams that must stay in their slots; their picks receive no balls, and the lock is labeled in results, history, and exports. A CPU lock overrides cooldown and consecutive-#1 restrictions only for that slot. Lock setup when it looks right.
 3. **Run the lottery** — set the **Season year** and click **Start Lottery**. If that year is already saved, you are asked before it is replaced.
 4. **View results & trades** — result cards show the pick, team, owner, pre-lottery slot, and movement (▲ up / ▼ down). The required trades are listed underneath.
 5. **Saved to history** — the finished lottery is saved automatically under **Past Lotteries**.
