@@ -24,6 +24,7 @@ The Flockville Madden League hub currently includes a static web application for
 - **Ability Guide** — browse the user-provided Madden 27 chart with search, offense/defense/special-teams position filters, and sortable columns; position order defaults to a football depth-chart sequence
 - **Optional Supabase archive** — league admins can sync and restore year-keyed lottery history across browsers while local storage and JSON backups continue to work
 - Dark FLOCKVILLE HUB theme, original animated dimensional raven crest, and responsive navigation
+- Separate shareable pages for the ability guide, lottery, results, history, and help; navigation keeps an in-progress draw on the page
 - **Rule tracking** — active rules are always visible; every settings change creates a versioned rule snapshot
 - Versioned localStorage persistence (teams, settings, results, trades, lock state, seed, history, rule history)
 - Season finalization workflow with automatic cooldown flag rollover
@@ -188,6 +189,10 @@ The website can run without a database. To share lottery history across devices,
 5. Reload the site, enter the admin email under **Past Lotteries → Supabase History**, and open the sign-in link in the same browser. Cloud history loads and merges with local years; publishing local history requires an explicit confirmation. Edits synchronize while signed in, and deleting a year also deletes that cloud year.
 
 Use the **Publish Local History** button to upload existing browser records to a new archive. Keep JSON exports as backups. The configured project URL and publishable key are public browser configuration; database access is controlled by the admin-only row-level security policies. Without configuration, cloud controls remain disabled and local features are unchanged.
+
+After signing in, the site checks that the account is in `flockville_admins` before loading the private archive. If access fails or a request times out, the cloud status explains the error and **Load Cloud History** can be used to retry. **Publish Local History** becomes available after access is verified and at least one year is saved in this browser.
+
+Deleting a saved year also deletes its cloud copy only after cloud history has been successfully loaded without unresolved conflicts. Otherwise the confirmation explains that deletion is local only, and the cloud copy can be restored by loading cloud history.
 
 ## Discord Exports
 

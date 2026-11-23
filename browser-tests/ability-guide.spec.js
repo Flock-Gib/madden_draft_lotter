@@ -1,7 +1,7 @@
 const { test, expect } = require("@playwright/test");
 
 test("ability chart loads, sorts, searches, filters, and stays contained on desktop and mobile", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/?page=ability");
   const rows = page.locator("#abilityTableBody tr");
   await expect(page.locator(".ability-count-badge")).toContainText("360 chart entries");
   await expect(rows).toHaveCount(360);

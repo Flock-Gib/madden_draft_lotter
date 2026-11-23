@@ -64,6 +64,19 @@ button {
   display: none !important;
 }
 
+body[data-page="ability"] .app-shell > section:not([data-page="ability"]),
+body[data-page="lottery"] .app-shell > section:not([data-page="lottery"]),
+body[data-page="results"] .app-shell > section:not([data-page="results"]),
+body[data-page="history"] .app-shell > section:not([data-page="history"]),
+body[data-page="help"] .app-shell > section:not([data-page="help"]) {
+  display: none;
+}
+
+.site-nav a[aria-current="page"] {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
 :focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 3px;
