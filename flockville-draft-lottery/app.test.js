@@ -1016,6 +1016,67 @@ test("CPU locks remain in their exact slots when bottom-four protection swaps ne
   assert.ok(results.slice(0, 8).some((entry) => ["Team 0", "Team 1", "Team 2", "Team 3"].includes(entry.team)));
 });
 
+test("ability chart rendering sorts numeric ratings, filters rows, and escapes spreadsheet content", () => {
+  const a = app();
+  a.context.abilityEntries = [
+    { position: "QB", abilityType: "Superstar", ability: "Alpha", unlockBasis: "Field General", requiredRating: "90+", abilitySlot: "Slot 1", silverRequirements: "A", goldRequirements: "B", verificationStatus: "Verified" },
+    { position: "CB", abilityType: "X-Factor", ability: "<script>", unlockBasis: "Man", requiredRating: "60+", abilitySlot: "X-Factor slot", silverRequirements: "N/A", goldRequirements: "N/A", verificationStatus: "Needs review" },
+    { position: "QB", abilityType: "Superstar", ability: "Beta", unlockBasis: "Improviser", requiredRating: "75+", abilitySlot: "Slot 2", silverRequirements: "C", goldRequirements: "D", verificationStatus: "Verified" },
+  ];
+  a.evaluate("abilityChartEntries = abilityEntries; abilitySortKey = 'requiredRating'; abilitySortDirection = 'asc'; renderAbilityChart()");
+  let markup = a.node("abilityTableBody").innerHTML;
+  assert.ok(markup.indexOf("60+") < markup.indexOf("75+"));
+  assert.ok(markup.indexOf("75+") < markup.indexOf("90+"));
+  assert.match(markup, /&lt;script&gt;/);
+  assert.doesNotMatch(markup, /<script>/);
+
+  a.node("abilityPosition").value = "QB";
+  a.node("abilityType").value = "Superstar";
+  a.node("abilitySearch").value = "beta";
+  a.evaluate("renderAbilityChart()");
+  markup = a.node("abilityTableBody").innerHTML;
+  assert.match(markup, /Beta/);
+  assert.doesNotMatch(markup, /Alpha/);
+  assert.doesNotMatch(markup, /&lt;script&gt;/);
+  assert.equal(a.node("abilityCount").textContent, "Showing 1 of 3 chart entries.");
+});
+
+test("cloud-history loading preserves declined conflicts and does not echo the downloaded archive back", async () => {
+  let cloudWrites = 0;
+  const cloudClient = {
+    isAuthenticated: () => true,
+    isConfigured: () => true,
+    userEmail: () => "admin@example.com",
+    loadHistory: async () => history.upsertRecord({
+      "2025": prior(2025, ["Cloud One", "Cloud Two", "Cloud Three"]),
+    }, prior(2024)),
+    saveHistory: async () => { cloudWrites += 1; },
+  };
+  const a = app(new Map(), {
+    FLOCKVILLE_SUPABASE_CONFIG: { url: "https://example.supabase.co", anonKey: "sb_publishable_test" },
+    flockvilleSupabaseHistory: { createClient: () => cloudClient },
+  });
+  a.state.lotteryHistory = history.upsertRecord({}, prior(2025));
+  a.context.acceptConfirmation = false;
+  a.evaluate("persistHistory()");
+  assert.equal(cloudWrites, 0);
+
+  await a.evaluate("loadSupabaseHistory()");
+
+  assert.equal(a.state.lotteryHistory["2025"].finalOrder[0].team, "Team 0");
+  assert.equal(a.state.lotteryHistory["2024"].finalOrder[0].team, "Team 0");
+  assert.equal(cloudWrites, 0);
+  assert.match(a.node("supabaseStatus").textContent, /loaded 1 new year; kept 1 local conflict/);
+
+  a.evaluate("persistHistory()");
+  assert.equal(cloudWrites, 0);
+  a.context.acceptConfirmation = true;
+  await a.evaluate("publishLocalHistory()");
+  assert.equal(cloudWrites, 1);
+  a.evaluate("persistHistory()");
+  assert.equal(cloudWrites, 2);
+});
+
 test("imported results without slot metadata use standings and tie-break ordering", () => {
   const a = app();
   a.context.payload = {

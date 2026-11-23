@@ -140,7 +140,15 @@ const lotteryTrades = globalThis.lotteryTrades;
 const lotteryHistory = globalThis.lotteryHistory;
 const lotteryTools = globalThis.lotteryTools;
 const lotteryTeamBranding = globalThis.lotteryTeamBranding;
+const supabaseHistoryClient = globalThis.flockvilleSupabaseHistory?.createClient(
+  globalThis.FLOCKVILLE_SUPABASE_CONFIG || {},
+);
+let abilityChartEntries = [];
+let abilitySortKey = "ability";
+let abilitySortDirection = "asc";
 let checksumWarning = "";
+let suppressCloudSync = false;
+let cloudHistoryReady = false;
 let activePresentation = null;
 let activeLotteryStage3d = null;
 [
@@ -481,6 +489,155 @@ function persistHistory() {
     localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(lotteryHistory.buildHistoryExport(state.lotteryHistory)));
   } catch {
     showToast("Could not save lottery history to this browser. Use Export History to back it up.");
+  }
+  if (!suppressCloudSync && cloudHistoryReady && supabaseHistoryClient?.isAuthenticated()) {
+    supabaseHistoryClient.saveHistory(state.lotteryHistory)
+      .then(() => setSupabaseStatus(`Connected as ${supabaseHistoryClient.userEmail()}. Local and cloud lottery history are synchronized.`))
+      .catch((error) => {
+        setSupabaseStatus(`Local history is saved, but cloud sync failed: ${error.message}`);
+        showToast(`Local history is saved, but Supabase sync failed: ${error.message}`);
+      });
+  }
+}
+
+function setSupabaseStatus(message) {
+  const status = document.getElementById("supabaseStatus");
+  if (status) status.textContent = message;
+}
+
+function renderSupabaseControls() {
+  if (!supabaseHistoryClient) {
+    setSupabaseStatus("Supabase history client is unavailable. Local lottery history remains active.");
+    return;
+  }
+  const configured = supabaseHistoryClient.isConfigured();
+  const signedIn = supabaseHistoryClient.isAuthenticated();
+  const email = document.getElementById("supabaseEmail");
+  const signIn = document.getElementById("supabaseSignInBtn");
+  const load = document.getElementById("supabaseLoadBtn");
+  const publish = document.getElementById("supabasePublishBtn");
+  const signOut = document.getElementById("supabaseSignOutBtn");
+  if (signIn) signIn.disabled = !configured || signedIn;
+  if (email) email.disabled = !configured || signedIn;
+  if (load) load.disabled = !configured || !signedIn;
+  if (publish) publish.disabled = !signedIn || !Object.keys(state.lotteryHistory).length;
+  if (signOut) signOut.hidden = !signedIn;
+  if (!configured) {
+    setSupabaseStatus("Cloud history is optional and not configured. Add your Supabase project URL and publishable anon key in supabase-config.js; local history continues to work.");
+  } else if (signedIn) {
+    setSupabaseStatus(`Signed in as ${supabaseHistoryClient.userEmail() || "league account"}. Checking access to the private league archive…`);
+  } else {
+    setSupabaseStatus("Supabase is configured. Request a league-admin sign-in link to access the private lottery archive.");
+  }
+}
+
+async function initializeSupabaseHistory() {
+  if (!supabaseHistoryClient) return;
+  try {
+    const result = await supabaseHistoryClient.initialize(
+      globalThis.location,
+      globalThis.history?.replaceState?.bind(globalThis.history),
+    );
+    if (result.configured && result.user?.email) {
+      supabaseHistoryClient.setUser?.(result.user);
+    }
+    renderSupabaseControls();
+    if (result.user) await loadSupabaseHistory();
+  } catch (error) {
+    renderSupabaseControls();
+    setSupabaseStatus(`Supabase could not initialize: ${error.message} Local lottery history is still available.`);
+  }
+}
+
+async function requestSupabaseSignIn() {
+  const email = document.getElementById("supabaseEmail")?.value;
+  try {
+    await supabaseHistoryClient.signInWithEmail(email, `${globalThis.location.origin}${globalThis.location.pathname}`);
+    setSupabaseStatus("Sign-in link sent. Open it in this browser to connect your league admin account.");
+    showToast("Supabase sign-in link sent.");
+  } catch (error) {
+    setSupabaseStatus(`Could not send sign-in link: ${error.message}`);
+    showToast(error.message);
+  }
+}
+
+async function loadSupabaseHistory() {
+  if (!supabaseHistoryClient?.isConfigured()) return;
+  const button = document.getElementById("supabaseLoadBtn");
+  if (button) button.disabled = true;
+  setSupabaseStatus("Loading saved lottery years from Supabase…");
+  try {
+    const remote = lotteryHistory.sanitizeHistory(await supabaseHistoryClient.loadHistory());
+    const incoming = Object.fromEntries(Object.entries(remote).filter(([year, record]) => {
+      const local = lotteryHistory.sanitizeRecord(state.lotteryHistory[year]);
+      return !local || JSON.stringify(local) !== JSON.stringify(record);
+    }));
+    const years = Object.keys(remote);
+    if (!years.length) {
+      cloudHistoryReady = true;
+      setSupabaseStatus("The Supabase archive is connected but has no saved lottery years yet.");
+      return;
+    }
+    if (!Object.keys(incoming).length) {
+      cloudHistoryReady = true;
+      setSupabaseStatus(`All ${years.length} cloud lottery year${years.length === 1 ? " is" : "s are"} already present in this browser.`);
+      return;
+    }
+    const conflicts = Object.keys(incoming).filter((year) => state.lotteryHistory[year]).length;
+    let mergeResult;
+    suppressCloudSync = true;
+    try {
+      mergeResult = mergeImportedHistory(incoming);
+    } finally {
+      suppressCloudSync = false;
+    }
+    render();
+    const retainedConflicts = conflicts - mergeResult.replaced;
+    cloudHistoryReady = retainedConflicts === 0;
+    const details = [
+      mergeResult.added ? `loaded ${mergeResult.added} new year${mergeResult.added === 1 ? "" : "s"}` : "",
+      mergeResult.replaced ? `replaced ${mergeResult.replaced} local conflict${mergeResult.replaced === 1 ? "" : "s"} with cloud versions` : "",
+      retainedConflicts ? `kept ${retainedConflicts} local conflict${retainedConflicts === 1 ? "" : "s"}` : "",
+    ].filter(Boolean);
+    setSupabaseStatus(details.length ? `${details.join("; ")}.` : "No cloud years were merged.");
+  } catch (error) {
+    setSupabaseStatus(`Could not load cloud history: ${error.message}`);
+    showToast(error.message);
+  } finally {
+    if (button) button.disabled = !supabaseHistoryClient.isConfigured() || !supabaseHistoryClient.isAuthenticated();
+  }
+}
+
+async function publishLocalHistory() {
+  if (!supabaseHistoryClient?.isAuthenticated()) return;
+  const count = Object.keys(state.lotteryHistory).length;
+  if (!count) return;
+  if (!confirm(`Publish ${count} local lottery year${count === 1 ? "" : "s"} to Supabase? Existing cloud records for matching years will be replaced.`)) return;
+  const button = document.getElementById("supabasePublishBtn");
+  if (button) button.disabled = true;
+  setSupabaseStatus(`Publishing ${count} local lottery year${count === 1 ? "" : "s"} to Supabase…`);
+  try {
+    await supabaseHistoryClient.saveHistory(state.lotteryHistory);
+    cloudHistoryReady = true;
+    setSupabaseStatus(`Published ${count} local lottery year${count === 1 ? "" : "s"} to Supabase.`);
+    showToast("Lottery history published to Supabase.");
+  } catch (error) {
+    setSupabaseStatus(`Local history remains saved, but cloud publishing failed: ${error.message}`);
+    showToast(error.message);
+  } finally {
+    if (button) button.disabled = !supabaseHistoryClient.isAuthenticated() || !Object.keys(state.lotteryHistory).length;
+  }
+}
+
+async function signOutSupabase() {
+  try {
+    await supabaseHistoryClient?.signOut();
+    cloudHistoryReady = false;
+    renderSupabaseControls();
+    showToast("Signed out of Supabase.");
+  } catch (error) {
+    setSupabaseStatus(`Supabase sign-out failed: ${error.message}`);
+    showToast(error.message);
   }
 }
 
@@ -874,6 +1031,115 @@ function renderLotteryStage() {
   els.winnerOwner.textContent = result
     ? `${result.owner !== result.team ? `Pick owned by ${result.owner}` : "Original team owns this pick"}${result.cpuLocked ? " · CPU / locked" : ""}`
     : "Original team and pick owner will appear here.";
+}
+
+function compareAbilityValues(a, b, key) {
+  if (key === "requiredRating") {
+    const rating = (value) => {
+      const match = String(value || "").match(/\d+(?:\.\d+)?/);
+      return match ? Number(match[0]) : null;
+    };
+    const left = rating(a[key]);
+    const right = rating(b[key]);
+    if (left === null || right === null) return left === right ? 0 : left === null ? 1 : -1;
+    return left - right;
+  }
+  return String(a[key] || "").localeCompare(String(b[key] || ""), undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
+function renderAbilityChart() {
+  const body = document.getElementById("abilityTableBody");
+  if (!body) return;
+  const query = normalizeName(document.getElementById("abilitySearch")?.value).toLowerCase();
+  const position = document.getElementById("abilityPosition")?.value || "";
+  const abilityType = document.getElementById("abilityType")?.value || "";
+  const filtered = abilityChartEntries
+    .map((entry, index) => ({ entry, index }))
+    .filter(({ entry }) => (!position || entry.position === position) &&
+      (!abilityType || entry.abilityType === abilityType) &&
+      (!query || Object.values(entry).some((value) => String(value).toLowerCase().includes(query))))
+    .sort((a, b) => compareAbilityValues(a.entry, b.entry, abilitySortKey) * (abilitySortDirection === "asc" ? 1 : -1) ||
+      a.index - b.index);
+  const columns = [
+    "position", "abilityType", "ability", "unlockBasis", "requiredRating",
+    "abilitySlot", "silverRequirements", "goldRequirements", "verificationStatus",
+  ];
+  body.innerHTML = filtered.length
+    ? filtered.map(({ entry }) => `<tr>${columns.map((key) => {
+      const value = String(entry[key] || "—");
+      return `<td title="${escapeHtml(value)}">${escapeHtml(value)}</td>`;
+    }).join("")}</tr>`).join("")
+    : '<tr><td colspan="9" class="helper-text">No abilities match these filters.</td></tr>';
+  document.getElementById("abilityCount").textContent =
+    `Showing ${filtered.length} of ${abilityChartEntries.length} chart entries.`;
+  document.querySelectorAll(".ability-table th[data-sort]").forEach((header) => {
+    const active = header.dataset.sort === abilitySortKey;
+    header.setAttribute("aria-sort", active ? (abilitySortDirection === "asc" ? "ascending" : "descending") : "none");
+    const button = header.querySelector(".ability-sort");
+    if (button) button.setAttribute("aria-label", `${button.textContent.trim()}, sort ${active && abilitySortDirection === "asc" ? "descending" : "ascending"}`);
+  });
+}
+
+async function initializeAbilityChart() {
+  const body = document.getElementById("abilityTableBody");
+  if (!body) return;
+  try {
+    const response = await globalThis.fetch("assets/ability-chart.json");
+    if (!response.ok) throw new Error(`Chart request returned ${response.status}.`);
+    const payload = await response.json();
+    if (!Array.isArray(payload.records)) throw new Error("Ability chart data is invalid.");
+    abilityChartEntries = payload.records
+      .filter((entry) => entry && typeof entry.position === "string" && typeof entry.ability === "string")
+      .map((entry) => Object.fromEntries([
+        "position", "abilityType", "ability", "unlockBasis", "requiredRating", "abilitySlot",
+        "silverRequirements", "goldRequirements", "verificationStatus",
+      ].map((key) => [key, String(entry[key] || "")])));
+    const position = document.getElementById("abilityPosition");
+    const type = document.getElementById("abilityType");
+    [...new Set(abilityChartEntries.map((entry) => entry.position))].sort().forEach((value) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = value;
+      position.appendChild(option);
+    });
+    [...new Set(abilityChartEntries.map((entry) => entry.abilityType))].sort().forEach((value) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = value;
+      type.appendChild(option);
+    });
+    document.querySelector(".ability-count-badge").textContent = `${abilityChartEntries.length} chart entries`;
+    renderAbilityChart();
+  } catch (error) {
+    body.innerHTML = '<tr><td colspan="9" class="helper-text">The ability chart could not be loaded. Refresh the page to try again.</td></tr>';
+    document.getElementById("abilityCount").textContent = `Unable to load chart: ${error.message}`;
+  }
+}
+
+function initializeAbilityFilters() {
+  document.getElementById("abilitySearch")?.addEventListener("input", renderAbilityChart);
+  document.getElementById("abilityPosition")?.addEventListener("change", renderAbilityChart);
+  document.getElementById("abilityType")?.addEventListener("change", renderAbilityChart);
+  document.getElementById("clearAbilityFilters")?.addEventListener("click", () => {
+    document.getElementById("abilitySearch").value = "";
+    document.getElementById("abilityPosition").value = "";
+    document.getElementById("abilityType").value = "";
+    renderAbilityChart();
+  });
+  document.querySelectorAll(".ability-table th[data-sort]").forEach((header) => {
+    header.querySelector(".ability-sort")?.addEventListener("click", () => {
+      if (abilitySortKey === header.dataset.sort) {
+        abilitySortDirection = abilitySortDirection === "asc" ? "desc" : "asc";
+      } else {
+        abilitySortKey = header.dataset.sort;
+        abilitySortDirection = "asc";
+      }
+      renderAbilityChart();
+    });
+  });
 }
 
 function getRequiredTrades(results = state.results) {
@@ -1834,7 +2100,7 @@ async function animateLottery(results, runContext) {
     saveLotteryToHistory(results, runContext);
     state.lastRunMeta.completed = true;
     els.drawProgress.textContent = `${results.length} of ${results.length} picks revealed · ${runContext.year}`;
-    els.statusText.textContent = `The Flockville Draft Lottery is complete for ${runContext.year}. Results and trades are in history; export a backup.`;
+    els.statusText.textContent = `FLOCKVILLE HUB lottery is complete for ${runContext.year}. Results and trades are in history; export a backup.`;
   } catch (error) {
     state.results = [];
     if (state.lastRunMeta) state.lastRunMeta.completed = false;
@@ -2045,6 +2311,12 @@ function deleteSelectedHistoryYear() {
   state.lotteryHistory = lotteryHistory.removeYear(state.lotteryHistory, year);
   state.selectedHistoryYear = "";
   persistHistory();
+  if (supabaseHistoryClient?.isAuthenticated()) {
+    supabaseHistoryClient.deleteYear(year).catch((error) => {
+      setSupabaseStatus(`Year ${year} was deleted locally but could not be deleted from Supabase: ${error.message}`);
+      showToast(error.message);
+    });
+  }
   render();
   showToast(`Deleted the saved ${year} lottery.`);
 }
@@ -3142,6 +3414,11 @@ els.seasonYearInput.addEventListener("change", () => {
   updateSeasonYear(els.seasonYearInput.value);
 });
 
+document.getElementById("supabaseSignInBtn").addEventListener("click", requestSupabaseSignIn);
+document.getElementById("supabaseLoadBtn").addEventListener("click", loadSupabaseHistory);
+document.getElementById("supabasePublishBtn").addEventListener("click", publishLocalHistory);
+document.getElementById("supabaseSignOutBtn").addEventListener("click", signOutSupabase);
+
 els.setupLockBtn.addEventListener("click", () => {
   if (state.isRunning) return;
   state.setupLocked = !state.setupLocked;
@@ -3174,3 +3451,6 @@ els.seedInput.value = state.seedText;
 els.statusText.textContent = state.results.length ? "Previous lottery loaded from saved state." : DEFAULT_STATUS;
 resetTradeForm();
 render();
+initializeAbilityFilters();
+initializeAbilityChart();
+initializeSupabaseHistory();

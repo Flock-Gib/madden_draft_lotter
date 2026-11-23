@@ -3,18 +3,18 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Flockville Madden League Draft Lottery" />
-  <title>Flockville Draft Lottery</title>
+  <meta name="description" content="FLOCKVILLE HUB — Madden league tools, ability guide, and draft lottery archive." />
+  <title>FLOCKVILLE HUB</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <main class="app-shell">
     <header class="hero">
-      <img class="hero-logo" src="assets/flockville-logo.png" alt="Flockville logo" />
+      <img class="hero-logo raven-logo" src="assets/flockville-raven.svg" alt="Flockville raven emblem" />
       <div>
         <p class="eyebrow">FLOCKVILLE LLC</p>
-        <h1>Draft Lottery</h1>
-        <p class="tagline">Fair. Competitive. No Tanking.</p>
+        <h1>FLOCKVILLE HUB</h1>
+        <p class="tagline">Madden league tools, guides, and draft lottery.</p>
         <div class="button-row hero-actions">
           <a class="button secondary" href="info.html">Full Guide</a>
         </div>
@@ -22,11 +22,60 @@
     </header>
 
     <nav class="site-nav" aria-label="Main sections">
+      <a href="#ability-guide">Ability Guide</a>
       <a href="#setup">Lottery</a>
       <a href="#results">Results</a>
       <a href="#history">History</a>
       <a href="#how-it-works">How it works</a>
     </nav>
+
+    <section id="ability-guide" class="panel ability-guide" aria-labelledby="abilityGuideHeading">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">FLOCKVILLE FIELD GUIDE</p>
+          <h2 id="abilityGuideHeading">Madden 27 Ability Chart</h2>
+          <p class="helper-text">Browse the ability requirements from the uploaded league chart. Filter by position or type, search any column, and sort by selecting a heading.</p>
+        </div>
+        <span class="ability-count-badge">Loading chart…</span>
+      </div>
+      <div class="ability-toolbar">
+        <label>
+          <span>Search abilities</span>
+          <input id="abilitySearch" type="search" placeholder="Ability, rating, archetype…" autocomplete="off" />
+        </label>
+        <label>
+          <span>Position</span>
+          <select id="abilityPosition"><option value="">All positions</option></select>
+        </label>
+        <label>
+          <span>Ability type</span>
+          <select id="abilityType"><option value="">All types</option></select>
+        </label>
+        <button id="clearAbilityFilters" class="button secondary" type="button">Clear filters</button>
+      </div>
+      <p id="abilityCount" class="helper-text" role="status" aria-live="polite">Loading ability chart…</p>
+      <div class="table-wrap ability-table-wrap">
+        <table class="odds-table ability-table">
+          <thead>
+            <tr>
+              <th scope="col" data-sort="position" aria-sort="none"><button class="ability-sort" type="button">Position</button></th>
+              <th scope="col" data-sort="abilityType" aria-sort="none"><button class="ability-sort" type="button">Type</button></th>
+              <th scope="col" data-sort="ability" aria-sort="ascending"><button class="ability-sort" type="button">Ability</button></th>
+              <th scope="col" data-sort="unlockBasis" aria-sort="none"><button class="ability-sort" type="button">Archetype / basis</button></th>
+              <th scope="col" data-sort="requiredRating" aria-sort="none"><button class="ability-sort" type="button">Required rating</button></th>
+              <th scope="col" data-sort="abilitySlot" aria-sort="none"><button class="ability-sort" type="button">Ability slot</button></th>
+              <th scope="col" data-sort="silverRequirements" aria-sort="none"><button class="ability-sort" type="button">Silver requirements</button></th>
+              <th scope="col" data-sort="goldRequirements" aria-sort="none"><button class="ability-sort" type="button">Gold requirements</button></th>
+              <th scope="col" data-sort="verificationStatus" aria-sort="none"><button class="ability-sort" type="button">Chart notes</button></th>
+            </tr>
+          </thead>
+          <tbody id="abilityTableBody">
+            <tr><td colspan="9" class="helper-text">Loading the ability chart…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="helper-text">Requirements and verification notes are from the league-provided spreadsheet. Always confirm current in-game availability before using an ability.</p>
+    </section>
 
     <section class="panel flow-panel" aria-labelledby="flowHeading">
       <p class="eyebrow">START HERE</p>
@@ -282,9 +331,27 @@
         <div>
           <p class="eyebrow">STEP 5 · HISTORY</p>
           <h2>Past Lotteries</h2>
-          <p class="helper-text">Every completed lottery is saved by season year. Storage is browser-local, not server-synced. Export files are backups; import to restore. To recover a photo: enter last year's actual order below → save/confirm → select next year → review automatic flags → draw → export backup.</p>
+          <p class="helper-text">Every completed lottery is saved locally and can be synchronized to the configured Flockville Supabase archive. Export files remain available as backups. To recover a photo: enter last year's actual order below → save/confirm → select next year → review automatic flags → draw.</p>
         </div>
       </div>
+      <section class="cloud-history-panel" aria-labelledby="cloudHistoryHeading">
+        <div>
+          <p class="eyebrow">CLOUD ARCHIVE</p>
+          <h3 id="cloudHistoryHeading" class="subheading">Supabase History</h3>
+          <p id="supabaseStatus" class="helper-text" role="status" aria-live="polite">Checking Supabase configuration…</p>
+        </div>
+        <div class="cloud-history-controls">
+          <label>
+            <span>Admin email</span>
+            <input id="supabaseEmail" type="email" autocomplete="email" placeholder="league-admin@example.com" />
+          </label>
+          <button id="supabaseSignInBtn" class="button secondary" type="button">Email sign-in link</button>
+          <button id="supabaseLoadBtn" class="button secondary" type="button" disabled>Load Cloud History</button>
+          <button id="supabasePublishBtn" class="button secondary" type="button" disabled>Publish Local History</button>
+          <button id="supabaseSignOutBtn" class="button secondary" type="button" hidden>Sign out</button>
+        </div>
+        <p class="helper-text">History remains saved in this browser. Sign in to sync with the private league archive; follow the README Supabase setup before connecting a project.</p>
+      </section>
       <div class="history-toolbar">
         <label class="year-field">
           <span>View year</span>
@@ -511,6 +578,8 @@
     </div>
   </dialog>
 
+  <script src="supabase-config.js"></script>
+  <script src="supabase-history.js"></script>
   <script src="lottery-order.js"></script>
   <script src="lottery-trades.js"></script>
   <script src="lottery-history.js"></script>
