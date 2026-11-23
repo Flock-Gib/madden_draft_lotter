@@ -23,7 +23,7 @@ for (const width of [1920, 768, 375]) {
       return {
         pageWidth: document.documentElement.scrollWidth,
         shellWidth: document.querySelector(".app-shell").getBoundingClientRect().width,
-        panelPadding: parseFloat(getComputedStyle(document.querySelector(".panel")).paddingLeft),
+        panelPadding: parseFloat(getComputedStyle(document.querySelector("#setup")).paddingLeft),
         overflow: selectors.flatMap((selector) => [...document.querySelectorAll(selector)]
           .filter((el) => el.clientWidth && el.scrollWidth > el.clientWidth + 1)
           .map(() => selector)),

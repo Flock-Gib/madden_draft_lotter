@@ -152,6 +152,8 @@ const abilityPositionGroups = [
 const abilityPositionOrder = abilityPositionGroups.flatMap((group) => group.positions);
 let abilitySortKey = "position";
 let abilitySortDirection = "asc";
+let abilityPage = 1;
+const ABILITY_PAGE_SIZE = 25;
 let checksumWarning = "";
 let suppressCloudSync = false;
 let cloudHistoryReady = false;
@@ -1100,16 +1102,37 @@ function renderAbilityChart() {
       a.index - b.index);
   const columns = [
     "position", "abilityType", "ability", "unlockBasis", "requiredRating",
-    "abilitySlot", "silverRequirements", "goldRequirements", "verificationStatus",
+    "abilitySlot",
   ];
+  const labels = ["Position", "Type", "Ability", "Archetype / basis", "Required rating", "Ability slot"];
+  const pageCount = Math.max(1, Math.ceil(filtered.length / ABILITY_PAGE_SIZE));
+  abilityPage = Math.min(abilityPage, pageCount);
+  const start = (abilityPage - 1) * ABILITY_PAGE_SIZE;
   body.innerHTML = filtered.length
-    ? filtered.map(({ entry }) => `<tr>${columns.map((key) => {
+    ? filtered.slice(start, start + ABILITY_PAGE_SIZE).map(({ entry }) => `<tr role="row">${columns.map((key, index) => {
       const value = String(entry[key] || "—");
-      return `<td title="${escapeHtml(value)}">${escapeHtml(value)}</td>`;
-    }).join("")}</tr>`).join("")
-    : '<tr><td colspan="9" class="helper-text">No abilities match these filters.</td></tr>';
+      return `<td role="cell" data-label="${labels[index]}">${escapeHtml(value)}</td>`;
+    }).join("")}<td role="cell" class="ability-details-cell"><details>
+      <summary>Full requirements<span class="sr-only"> for ${escapeHtml(entry.ability)} (${escapeHtml(entry.position)})</span></summary>
+      <dl>${[["Silver", "silverRequirements"], ["Gold", "goldRequirements"], ["Chart notes", "verificationStatus"]]
+        .map(([label, key]) => `<div><dt>${label}</dt><dd>${escapeHtml(entry[key] || "Not specified in chart")}</dd></div>`).join("")}</dl>
+    </details></td></tr>`).join("")
+    : '<tr><td colspan="7" class="helper-text ability-empty">No abilities match. Try another search or clear the filters.</td></tr>';
   document.getElementById("abilityCount").textContent =
-    `Showing ${filtered.length} of ${abilityChartEntries.length} chart entries.`;
+    filtered.length ? `Showing ${start + 1}–${Math.min(start + ABILITY_PAGE_SIZE, filtered.length)} of ${filtered.length} matches (${abilityChartEntries.length} chart entries).`
+      : `No matches in ${abilityChartEntries.length} chart entries.`;
+  document.getElementById("abilityPage").innerHTML = Array.from({ length: pageCount }, (_, index) =>
+    `<option value="${index + 1}"${index + 1 === abilityPage ? " selected" : ""}>${index + 1} of ${pageCount}</option>`).join("");
+  document.getElementById("abilityPage").disabled = pageCount === 1;
+  document.getElementById("abilityPreviousPage").disabled = abilityPage === 1;
+  document.getElementById("abilityNextPage").disabled = abilityPage === pageCount;
+  document.getElementById("abilitySort").value = abilitySortKey;
+  document.getElementById("abilitySortDirection").textContent = abilitySortDirection === "asc" ? "Ascending" : "Descending";
+  document.getElementById("abilitySortDirection").setAttribute("aria-label",
+    `Sort ${abilitySortDirection === "asc" ? "descending" : "ascending"}`);
+  document.querySelectorAll("#abilityPositionNav button").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.position === position));
+  });
   document.querySelectorAll(".ability-table th[data-sort]").forEach((header) => {
     const active = header.dataset.sort === abilitySortKey;
     header.setAttribute("aria-sort", active ? (abilitySortDirection === "asc" ? "ascending" : "descending") : "none");
@@ -1151,6 +1174,11 @@ async function initializeAbilityChart() {
       });
       position.appendChild(optgroup);
     });
+    document.getElementById("abilityPositionNav").innerHTML =
+      '<button class="ability-position-button" type="button" data-position="" aria-pressed="true">All positions</button>' +
+      groups.filter((group) => group.positions.some((value) => positions.has(value))).map((group) =>
+        `<div class="ability-position-group"><span>${escapeHtml(group.label)}</span><div>${group.positions.filter((value) => positions.has(value)).map((value) =>
+          `<button class="ability-position-button" type="button" data-position="${escapeHtml(value)}" aria-pressed="false">${escapeHtml(value)}</button>`).join("")}</div></div>`).join("");
     [...new Set(abilityChartEntries.map((entry) => entry.abilityType))].sort().forEach((value) => {
       const option = document.createElement("option");
       option.value = value;
@@ -1160,20 +1188,50 @@ async function initializeAbilityChart() {
     document.querySelector(".ability-count-badge").textContent = `${abilityChartEntries.length} chart entries`;
     renderAbilityChart();
   } catch (error) {
-    body.innerHTML = '<tr><td colspan="9" class="helper-text">The ability chart could not be loaded. Refresh the page to try again.</td></tr>';
+    body.innerHTML = '<tr><td colspan="7" class="helper-text ability-empty">The ability chart could not be loaded. Refresh the page to try again.</td></tr>';
     document.getElementById("abilityCount").textContent = `Unable to load chart: ${error.message}`;
   }
 }
 
 function initializeAbilityFilters() {
-  document.getElementById("abilitySearch")?.addEventListener("input", renderAbilityChart);
-  document.getElementById("abilityPosition")?.addEventListener("change", renderAbilityChart);
-  document.getElementById("abilityType")?.addEventListener("change", renderAbilityChart);
+  const resetPage = () => {
+    abilityPage = 1;
+    renderAbilityChart();
+  };
+  document.getElementById("abilitySearch")?.addEventListener("input", resetPage);
+  document.getElementById("abilityPosition")?.addEventListener("change", resetPage);
+  document.getElementById("abilityType")?.addEventListener("change", resetPage);
+  document.getElementById("abilityPositionNav")?.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-position]");
+    if (!button) return;
+    document.getElementById("abilityPosition").value = button.dataset.position;
+    resetPage();
+  });
+  document.getElementById("abilitySort")?.addEventListener("change", (event) => {
+    abilitySortKey = event.target.value;
+    abilitySortDirection = "asc";
+    resetPage();
+  });
+  document.getElementById("abilitySortDirection")?.addEventListener("click", () => {
+    abilitySortDirection = abilitySortDirection === "asc" ? "desc" : "asc";
+    resetPage();
+  });
+  const changePage = (page) => {
+    abilityPage = page;
+    renderAbilityChart();
+    const chart = document.querySelector(".ability-browse-bar");
+    chart.tabIndex = -1;
+    chart.focus({ preventScroll: true });
+    chart.scrollIntoView({ block: "start" });
+  };
+  document.getElementById("abilityPreviousPage")?.addEventListener("click", () => changePage(abilityPage - 1));
+  document.getElementById("abilityNextPage")?.addEventListener("click", () => changePage(abilityPage + 1));
+  document.getElementById("abilityPage")?.addEventListener("change", (event) => changePage(Number(event.target.value)));
   document.getElementById("clearAbilityFilters")?.addEventListener("click", () => {
     document.getElementById("abilitySearch").value = "";
     document.getElementById("abilityPosition").value = "";
     document.getElementById("abilityType").value = "";
-    renderAbilityChart();
+    resetPage();
   });
   document.querySelectorAll(".ability-table th[data-sort]").forEach((header) => {
     header.querySelector(".ability-sort")?.addEventListener("click", () => {
@@ -1183,7 +1241,7 @@ function initializeAbilityFilters() {
         abilitySortKey = header.dataset.sort;
         abilitySortDirection = "asc";
       }
-      renderAbilityChart();
+      resetPage();
     });
   });
 }

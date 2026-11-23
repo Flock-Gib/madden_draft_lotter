@@ -21,6 +21,11 @@
       const target = anchorPages[anchor] === page && document.getElementById(anchor);
       if (target) target.scrollIntoView();
       else window.scrollTo(0, 0);
+      const heading = (target || document.querySelector(`section[data-page="${page}"]`))?.querySelector("h2");
+      if (heading) {
+        heading.tabIndex = -1;
+        heading.focus({ preventScroll: true });
+      }
     }
   }
 
