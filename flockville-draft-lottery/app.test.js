@@ -24,7 +24,8 @@ function app(storage = new Map(), options = {}) {
         return [];
       },
       addEventListener(event, listener) { this.listeners[event] = listener; },
-      focus() {}, classList: { add() {}, remove() {} },
+      setAttribute(name, value) { this[name] = value; },
+      focus() {}, scrollIntoView() {}, classList: { add() {}, remove() {} },
     });
     return nodes.get(id);
   };
@@ -1038,7 +1039,26 @@ test("ability chart rendering sorts numeric ratings, filters rows, and escapes s
   assert.match(markup, /Beta/);
   assert.doesNotMatch(markup, /Alpha/);
   assert.doesNotMatch(markup, /&lt;script&gt;/);
-  assert.equal(a.node("abilityCount").textContent, "Showing 1 of 3 chart entries.");
+  assert.equal(a.node("abilityCount").textContent, "Showing 1–1 of 1 matches (3 chart entries).");
+});
+
+test("ability chart searches hidden requirement fields and resets pagination when filtering", () => {
+  const a = app();
+  a.context.abilityEntries = Array.from({ length: 60 }, (_, index) => ({
+    position: "QB", ability: `Ability ${index}`, goldRequirements: index === 59 ? "<rare requirement>" : "Standard",
+  }));
+  a.evaluate("abilityChartEntries = abilityEntries; initializeAbilityFilters(); renderAbilityChart()");
+  assert.equal((a.node("abilityTableBody").innerHTML.match(/<tr /g) || []).length, 25);
+  assert.equal(a.node("abilityPreviousPage").disabled, true);
+  a.node("abilityNextPage").listeners.click();
+  assert.match(a.node("abilityCount").textContent, /26–50 of 60/);
+  a.node("abilitySearch").value = "rare requirement";
+  a.node("abilitySearch").listeners.input();
+  assert.match(a.node("abilityTableBody").innerHTML, /Ability 59/);
+  assert.match(a.node("abilityTableBody").innerHTML, /&lt;rare requirement&gt;/);
+  assert.match(a.node("abilityCount").textContent, /1–1 of 1 matches/);
+  assert.equal(a.node("abilityPreviousPage").disabled, true);
+  assert.equal(a.node("abilityNextPage").disabled, true);
 });
 
 test("cloud-history loading preserves declined conflicts and does not echo the downloaded archive back", async () => {

@@ -6,11 +6,18 @@
   <meta name="description" content="FLOCKVILLE HUB — Madden league tools, ability guide, and draft lottery archive." />
   <title>FLOCKVILLE HUB | Ability Guide &amp; Draft Lottery</title>
   <link rel="stylesheet" href="styles.css" />
+  <script src="brand-logo.js" defer></script>
 </head>
 <body>
   <main class="app-shell">
     <header class="hero">
-      <img class="hero-logo raven-logo" src="assets/flockville-raven.svg" alt="Flockville raven emblem" />
+      <div class="brand-mark">
+        <picture>
+          <source media="(prefers-reduced-motion: reduce)" srcset="assets/flockville-energy-logo.png" />
+          <img class="hero-logo" src="assets/flockville-energy-logo.gif" width="508" height="337" alt="Flockville purple raven shield logo" />
+        </picture>
+        <button class="logo-motion-toggle" type="button" aria-pressed="false">Pause logo animation</button>
+      </div>
       <div>
         <p class="eyebrow">FLOCKVILLE LLC</p>
         <h1>FLOCKVILLE HUB</h1>
@@ -34,7 +41,7 @@
         <div>
           <p class="eyebrow">FLOCKVILLE FIELD GUIDE</p>
           <h2 id="abilityGuideHeading">Madden 27 Ability Chart</h2>
-          <p class="helper-text">Browse the ability requirements from the uploaded league chart. Filter by position or type, search any column, and sort by selecting a heading. Scroll the table for more rows and columns.</p>
+          <p class="helper-text">Find the right ability for your player. Choose a position, search any requirement, and open an entry for its full silver, gold, and chart notes.</p>
         </div>
         <span class="ability-count-badge">Loading chart…</span>
       </div>
@@ -53,27 +60,49 @@
         </label>
         <button id="clearAbilityFilters" class="button secondary" type="button">Clear filters</button>
       </div>
-      <p id="abilityCount" class="helper-text" role="status" aria-live="polite">Loading ability chart…</p>
-      <div class="table-wrap ability-table-wrap" role="region" aria-label="Ability chart, scrollable" tabindex="0">
-        <table class="odds-table ability-table">
+      <div id="abilityPositionNav" class="ability-position-nav" role="group" aria-label="Quick position filters"></div>
+      <div class="ability-browse-bar">
+        <p id="abilityCount" class="helper-text" role="status" aria-live="polite">Loading ability chart…</p>
+        <div class="ability-sort-controls">
+          <label for="abilitySort">Sort by</label>
+          <select id="abilitySort">
+            <option value="position">Position</option>
+            <option value="abilityType">Ability type</option>
+            <option value="ability">Ability name</option>
+            <option value="unlockBasis">Archetype / basis</option>
+            <option value="requiredRating">Required rating</option>
+            <option value="abilitySlot">Ability slot</option>
+            <option value="silverRequirements">Silver requirements</option>
+            <option value="goldRequirements">Gold requirements</option>
+            <option value="verificationStatus">Chart notes</option>
+          </select>
+          <button id="abilitySortDirection" class="button secondary" type="button">Ascending</button>
+        </div>
+      </div>
+      <div class="ability-table-wrap">
+        <table class="odds-table ability-table" role="table" aria-label="Madden 27 abilities">
           <thead>
             <tr>
-              <th scope="col" data-sort="position" aria-sort="ascending"><button class="ability-sort" type="button">Position</button></th>
+              <th scope="col" data-sort="position" aria-sort="ascending"><button class="ability-sort" type="button">Pos.</button></th>
               <th scope="col" data-sort="abilityType" aria-sort="none"><button class="ability-sort" type="button">Type</button></th>
               <th scope="col" data-sort="ability" aria-sort="none"><button class="ability-sort" type="button">Ability</button></th>
               <th scope="col" data-sort="unlockBasis" aria-sort="none"><button class="ability-sort" type="button">Archetype / basis</button></th>
-              <th scope="col" data-sort="requiredRating" aria-sort="none"><button class="ability-sort" type="button">Required rating</button></th>
-              <th scope="col" data-sort="abilitySlot" aria-sort="none"><button class="ability-sort" type="button">Ability slot</button></th>
-              <th scope="col" data-sort="silverRequirements" aria-sort="none"><button class="ability-sort" type="button">Silver requirements</button></th>
-              <th scope="col" data-sort="goldRequirements" aria-sort="none"><button class="ability-sort" type="button">Gold requirements</button></th>
-              <th scope="col" data-sort="verificationStatus" aria-sort="none"><button class="ability-sort" type="button">Chart notes</button></th>
+              <th scope="col" data-sort="requiredRating" aria-sort="none"><button class="ability-sort" type="button">Rating</button></th>
+              <th scope="col" data-sort="abilitySlot" aria-sort="none"><button class="ability-sort" type="button">Slot</button></th>
+              <th scope="col">Full requirements</th>
             </tr>
           </thead>
           <tbody id="abilityTableBody">
-            <tr><td colspan="9" class="helper-text">Loading the ability chart…</td></tr>
+            <tr><td colspan="7" class="helper-text">Loading the ability chart…</td></tr>
           </tbody>
         </table>
       </div>
+      <nav class="ability-pagination" aria-label="Ability chart pages">
+        <button id="abilityPreviousPage" class="button secondary" type="button" disabled>Previous</button>
+        <label>Page <select id="abilityPage" disabled><option value="1">1 of 1</option></select></label>
+        <button id="abilityNextPage" class="button secondary" type="button" disabled>Next</button>
+        <a href="#ability-guide">Back to filters</a>
+      </nav>
       <p class="helper-text">Requirements and verification notes are from the league-provided spreadsheet. Always confirm current in-game availability before using an ability.</p>
     </section>
 
