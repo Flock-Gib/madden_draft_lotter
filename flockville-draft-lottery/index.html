@@ -34,7 +34,7 @@
         <div>
           <p class="eyebrow">FLOCKVILLE FIELD GUIDE</p>
           <h2 id="abilityGuideHeading">Madden 27 Ability Chart</h2>
-          <p class="helper-text">Browse the ability requirements from the uploaded league chart. Filter by position or type, search any column, and sort by selecting a heading.</p>
+          <p class="helper-text">Browse the ability requirements from the uploaded league chart. Filter by position or type, search any column, and sort by selecting a heading. Scroll the table for more rows and columns.</p>
         </div>
         <span class="ability-count-badge">Loading chart…</span>
       </div>
@@ -54,13 +54,13 @@
         <button id="clearAbilityFilters" class="button secondary" type="button">Clear filters</button>
       </div>
       <p id="abilityCount" class="helper-text" role="status" aria-live="polite">Loading ability chart…</p>
-      <div class="table-wrap ability-table-wrap">
+      <div class="table-wrap ability-table-wrap" role="region" aria-label="Ability chart, scrollable" tabindex="0">
         <table class="odds-table ability-table">
           <thead>
             <tr>
-              <th scope="col" data-sort="position" aria-sort="none"><button class="ability-sort" type="button">Position</button></th>
+              <th scope="col" data-sort="position" aria-sort="ascending"><button class="ability-sort" type="button">Position</button></th>
               <th scope="col" data-sort="abilityType" aria-sort="none"><button class="ability-sort" type="button">Type</button></th>
-              <th scope="col" data-sort="ability" aria-sort="ascending"><button class="ability-sort" type="button">Ability</button></th>
+              <th scope="col" data-sort="ability" aria-sort="none"><button class="ability-sort" type="button">Ability</button></th>
               <th scope="col" data-sort="unlockBasis" aria-sort="none"><button class="ability-sort" type="button">Archetype / basis</button></th>
               <th scope="col" data-sort="requiredRating" aria-sort="none"><button class="ability-sort" type="button">Required rating</button></th>
               <th scope="col" data-sort="abilitySlot" aria-sort="none"><button class="ability-sort" type="button">Ability slot</button></th>
