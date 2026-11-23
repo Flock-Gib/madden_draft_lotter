@@ -75,9 +75,20 @@
       return payload;
     }
 
+    async function fetchWithTimeout(resource, options) {
+      try {
+        return await fetchImpl(resource, { ...options, signal: AbortSignal.timeout(15000) });
+      } catch (error) {
+        if (error.name === "TimeoutError" || error.name === "AbortError") {
+          throw new Error("Supabase did not respond within 15 seconds. Check your connection and try again.");
+        }
+        throw error;
+      }
+    }
+
     async function refreshSession() {
       if (!session?.refresh_token) throw new Error("Supabase session expired. Sign in again.");
-      const response = await fetchImpl(`${url}/auth/v1/token?grant_type=refresh_token`, {
+      const response = await fetchWithTimeout(`${url}/auth/v1/token?grant_type=refresh_token`, {
         method: "POST",
         headers: { apikey: anonKey, "Content-Type": "application/json" },
         body: JSON.stringify({ refresh_token: session.refresh_token }),
@@ -97,7 +108,7 @@
       };
       if (session?.access_token) headers.Authorization = `Bearer ${accessToken}`;
       else if (!anonKey.startsWith("sb_publishable_")) headers.Authorization = `Bearer ${anonKey}`;
-      const response = await fetchImpl(`${url}${path}`, {
+      const response = await fetchWithTimeout(`${url}${path}`, {
         method: options.method || "GET",
         headers,
         ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
@@ -163,6 +174,11 @@
     }
 
     async function loadHistory() {
+      const isAdmin = await request("/rest/v1/rpc/is_flockville_admin", {
+        method: "POST",
+        body: {},
+      });
+      if (isAdmin !== true) throw new Error("This account is not authorized as a Flockville admin. Ask the project owner to add it to flockville_admins.");
       const rows = await request(`/rest/v1/${TABLE}?select=season_year,record&order=season_year.desc`);
       if (!Array.isArray(rows)) throw new Error("Supabase returned an invalid lottery history response.");
       return rows.reduce((records, row) => {

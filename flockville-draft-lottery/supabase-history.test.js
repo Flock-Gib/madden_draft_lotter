@@ -48,6 +48,7 @@ test("magic-link callback stores the session, cleans the URL, and loads year-key
   requests.length = 0;
   const historyClient = makeClient(async (url, options) => {
     requests.push({ url, options });
+    if (url.endsWith("/rpc/is_flockville_admin")) return response(200, true);
     return response(200, [{ season_year: 2026, record: { year: 2026 } }]);
   });
   await historyClient.initialize(
@@ -130,4 +131,24 @@ test("configuration and Supabase errors are surfaced instead of silently falling
     hash: "#error=access_denied&error_description=Link+expired", pathname: "/", search: "",
   }, (_state, _title, url) => { cleanedUrl = url; }), /Supabase sign-in failed: Link expired/);
   assert.equal(cleanedUrl, "/");
+});
+
+test("loading distinguishes a non-admin account from an empty archive", async () => {
+  const calls = [];
+  const client = makeClient(async (url) => {
+    calls.push(url);
+    if (url.endsWith("/auth/v1/user")) return response(200, { email: "user@example.com" });
+    return response(200, false);
+  });
+  await client.initialize({ hash: "#access_token=access", pathname: "/", search: "" }, () => {});
+  await assert.rejects(client.loadHistory(), /not authorized as a Flockville admin/);
+  assert.equal(calls.some((url) => url.includes("draft_lottery_history")), false);
+});
+
+test("a timed-out connection surfaces a retryable error", async () => {
+  const client = makeClient(async () => {
+    throw new DOMException("Timed out", "TimeoutError");
+  });
+  await client.initialize({ hash: "", pathname: "/", search: "" });
+  await assert.rejects(client.signInWithEmail("admin@example.com", "https://example.com/"), /did not respond within 15 seconds/);
 });

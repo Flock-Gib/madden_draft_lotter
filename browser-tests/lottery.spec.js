@@ -5,6 +5,16 @@ test.beforeEach(async ({ page }) => {
   page.__pageErrors = [];
   page.on("pageerror", (error) => page.__pageErrors.push(error.message));
   page.on("dialog", (dialog) => dialog.accept());
+  // These legacy feature tests exercise the combined DOM; real page navigation
+  // and visibility are covered separately in navigation-cloud.spec.js.
+  await page.addInitScript(() => {
+    document.addEventListener("DOMContentLoaded", () => {
+      const sheet = [...document.styleSheets].find((item) => item.href?.endsWith("/styles.css"));
+      if (!sheet) return;
+      const index = [...sheet.cssRules].findIndex((rule) => rule.selectorText?.includes('body[data-page="ability"] .app-shell'));
+      if (index >= 0) sheet.deleteRule(index);
+    });
+  });
   await page.goto("/");
 });
 

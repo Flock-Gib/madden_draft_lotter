@@ -155,6 +155,7 @@ let abilitySortDirection = "asc";
 let checksumWarning = "";
 let suppressCloudSync = false;
 let cloudHistoryReady = false;
+let cloudAccessVerified = false;
 let activePresentation = null;
 let activeLotteryStage3d = null;
 [
@@ -496,6 +497,7 @@ function persistHistory() {
   } catch {
     showToast("Could not save lottery history to this browser. Use Export History to back it up.");
   }
+  updateSupabaseButtons();
   if (!suppressCloudSync && cloudHistoryReady && supabaseHistoryClient?.isAuthenticated()) {
     supabaseHistoryClient.saveHistory(state.lotteryHistory)
       .then(() => setSupabaseStatus(`Connected as ${supabaseHistoryClient.userEmail()}. Local and cloud lottery history are synchronized.`))
@@ -511,6 +513,13 @@ function setSupabaseStatus(message) {
   if (status) status.textContent = message;
 }
 
+function updateSupabaseButtons() {
+  if (!supabaseHistoryClient) return;
+  const signedIn = supabaseHistoryClient.isAuthenticated();
+  const publish = document.getElementById("supabasePublishBtn");
+  if (publish) publish.disabled = !signedIn || !cloudAccessVerified || !Object.keys(state.lotteryHistory).length;
+}
+
 function renderSupabaseControls() {
   if (!supabaseHistoryClient) {
     setSupabaseStatus("Supabase history client is unavailable. Local lottery history remains active.");
@@ -521,12 +530,11 @@ function renderSupabaseControls() {
   const email = document.getElementById("supabaseEmail");
   const signIn = document.getElementById("supabaseSignInBtn");
   const load = document.getElementById("supabaseLoadBtn");
-  const publish = document.getElementById("supabasePublishBtn");
   const signOut = document.getElementById("supabaseSignOutBtn");
   if (signIn) signIn.disabled = !configured || signedIn;
   if (email) email.disabled = !configured || signedIn;
   if (load) load.disabled = !configured || !signedIn;
-  if (publish) publish.disabled = !signedIn || !Object.keys(state.lotteryHistory).length;
+  updateSupabaseButtons();
   if (signOut) signOut.hidden = !signedIn;
   if (!configured) {
     setSupabaseStatus("Cloud history is optional and not configured. Add your Supabase project URL and publishable anon key in supabase-config.js; local history continues to work.");
@@ -568,12 +576,17 @@ async function requestSupabaseSignIn() {
 }
 
 async function loadSupabaseHistory() {
-  if (!supabaseHistoryClient?.isConfigured()) return;
+  if (!supabaseHistoryClient?.isConfigured() || !supabaseHistoryClient.isAuthenticated()) return;
+  cloudAccessVerified = false;
+  cloudHistoryReady = false;
+  updateSupabaseButtons();
   const button = document.getElementById("supabaseLoadBtn");
   if (button) button.disabled = true;
   setSupabaseStatus("Loading saved lottery years from Supabase…");
   try {
     const remote = lotteryHistory.sanitizeHistory(await supabaseHistoryClient.loadHistory());
+    cloudAccessVerified = true;
+    updateSupabaseButtons();
     const incoming = Object.fromEntries(Object.entries(remote).filter(([year, record]) => {
       const local = lotteryHistory.sanitizeRecord(state.lotteryHistory[year]);
       return !local || JSON.stringify(local) !== JSON.stringify(record);
@@ -607,6 +620,9 @@ async function loadSupabaseHistory() {
     ].filter(Boolean);
     setSupabaseStatus(details.length ? `${details.join("; ")}.` : "No cloud years were merged.");
   } catch (error) {
+    cloudAccessVerified = false;
+    cloudHistoryReady = false;
+    updateSupabaseButtons();
     setSupabaseStatus(`Could not load cloud history: ${error.message}`);
     showToast(error.message);
   } finally {
@@ -615,7 +631,7 @@ async function loadSupabaseHistory() {
 }
 
 async function publishLocalHistory() {
-  if (!supabaseHistoryClient?.isAuthenticated()) return;
+  if (!supabaseHistoryClient?.isAuthenticated() || !cloudAccessVerified) return;
   const count = Object.keys(state.lotteryHistory).length;
   if (!count) return;
   if (!confirm(`Publish ${count} local lottery year${count === 1 ? "" : "s"} to Supabase? Existing cloud records for matching years will be replaced.`)) return;
@@ -631,19 +647,23 @@ async function publishLocalHistory() {
     setSupabaseStatus(`Local history remains saved, but cloud publishing failed: ${error.message}`);
     showToast(error.message);
   } finally {
-    if (button) button.disabled = !supabaseHistoryClient.isAuthenticated() || !Object.keys(state.lotteryHistory).length;
+    updateSupabaseButtons();
   }
 }
 
 async function signOutSupabase() {
+  let signOutError;
   try {
     await supabaseHistoryClient?.signOut();
-    cloudHistoryReady = false;
-    renderSupabaseControls();
     showToast("Signed out of Supabase.");
   } catch (error) {
-    setSupabaseStatus(`Supabase sign-out failed: ${error.message}`);
+    signOutError = error;
     showToast(error.message);
+  } finally {
+    cloudHistoryReady = false;
+    cloudAccessVerified = false;
+    renderSupabaseControls();
+    if (signOutError) setSupabaseStatus(`Supabase sign-out failed: ${signOutError.message}`);
   }
 }
 
@@ -2332,19 +2352,30 @@ async function importLotteryHistory() {
 function deleteSelectedHistoryYear() {
   const year = state.selectedHistoryYear;
   if (!year || !state.lotteryHistory[year] || state.isRunning) return;
-  if (!confirm(`Delete the saved ${year} lottery (results, odds, and trades)? This cannot be undone.`)) return;
+  const deleteFromCloud = cloudHistoryReady && supabaseHistoryClient?.isAuthenticated();
+  const scope = deleteFromCloud ? "from this browser and Supabase" : "from this browser only; any cloud copy will remain";
+  if (!confirm(`Delete the saved ${year} lottery (results, odds, and trades) ${scope}? This cannot be undone.`)) return;
 
   state.lotteryHistory = lotteryHistory.removeYear(state.lotteryHistory, year);
   state.selectedHistoryYear = "";
-  persistHistory();
-  if (supabaseHistoryClient?.isAuthenticated()) {
-    supabaseHistoryClient.deleteYear(year).catch((error) => {
-      setSupabaseStatus(`Year ${year} was deleted locally but could not be deleted from Supabase: ${error.message}`);
-      showToast(error.message);
-    });
+  suppressCloudSync = true;
+  try {
+    persistHistory();
+  } finally {
+    suppressCloudSync = false;
+  }
+  if (deleteFromCloud) {
+    supabaseHistoryClient.deleteYear(year)
+      .then(() => setSupabaseStatus(`Year ${year} was deleted from this browser and Supabase.`))
+      .catch((error) => {
+        setSupabaseStatus(`Year ${year} was deleted locally but could not be deleted from Supabase: ${error.message}`);
+        showToast(error.message);
+      });
+  } else {
+    setSupabaseStatus(`Year ${year} was deleted from this browser only. Any cloud copy remains; load cloud history to restore it.`);
   }
   render();
-  showToast(`Deleted the saved ${year} lottery.`);
+  showToast(`Deleted the saved ${year} lottery ${deleteFromCloud ? "from this browser; cloud deletion is pending" : "from this browser only"}.`);
 }
 
 function resetApp() {

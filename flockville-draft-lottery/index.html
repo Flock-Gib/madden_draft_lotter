@@ -22,14 +22,14 @@
     </header>
 
     <nav class="site-nav" aria-label="Main sections">
-      <a href="#ability-guide">Ability Guide</a>
-      <a href="#setup">Lottery</a>
-      <a href="#results">Results</a>
-      <a href="#history">History</a>
-      <a href="#how-it-works">How it works</a>
+      <a href="?page=ability">Ability Guide</a>
+      <a href="?page=lottery">Lottery</a>
+      <a href="?page=results">Results</a>
+      <a href="?page=history">History</a>
+      <a href="?page=help">How it works</a>
     </nav>
 
-    <section id="ability-guide" class="panel ability-guide" aria-labelledby="abilityGuideHeading">
+    <section id="ability-guide" class="panel ability-guide" data-page="ability" aria-labelledby="abilityGuideHeading">
       <div class="section-heading">
         <div>
           <p class="eyebrow">FLOCKVILLE FIELD GUIDE</p>
@@ -77,7 +77,7 @@
       <p class="helper-text">Requirements and verification notes are from the league-provided spreadsheet. Always confirm current in-game availability before using an ability.</p>
     </section>
 
-    <section class="panel flow-panel" aria-labelledby="flowHeading">
+    <section class="panel flow-panel" data-page="lottery" aria-labelledby="flowHeading">
       <p class="eyebrow">START HERE</p>
       <h2 id="flowHeading">Step-by-step</h2>
       <ol id="flowSteps" class="flow-steps">
@@ -89,7 +89,7 @@
       </ol>
     </section>
 
-    <section id="setup" class="panel controls">
+    <section id="setup" class="panel controls" data-page="lottery">
       <div class="section-heading">
         <div>
           <p class="eyebrow">STEP 1 · SETUP</p>
@@ -144,7 +144,7 @@
       <div id="mobileTeamList" class="mobile-team-list" aria-label="Lottery team setup"></div>
     </section>
 
-    <section class="panel settings-grid">
+    <section class="panel settings-grid" data-page="lottery">
       <div>
         <p class="eyebrow">RULES</p>
         <h2>Lottery Settings</h2>
@@ -199,7 +199,7 @@
       </label>
     </section>
 
-    <section id="odds" class="panel">
+    <section id="odds" class="panel" data-page="lottery">
       <div>
         <p class="eyebrow">STEP 2 · TRANSPARENCY</p>
         <h2>Lottery Odds Breakdown</h2>
@@ -208,7 +208,7 @@
       <div id="lotteryTransparency" class="lottery-transparency"></div>
     </section>
 
-    <section id="draw" class="panel draw-panel">
+    <section id="draw" class="panel draw-panel" data-page="lottery">
       <div class="section-heading">
         <div>
           <p class="eyebrow">STEP 3 · LIVE DRAW</p>
@@ -263,7 +263,7 @@
       </div>
     </section>
 
-    <section id="dryRunPanel" class="panel dry-run-panel" aria-labelledby="dryRunHeading" hidden>
+    <section id="dryRunPanel" class="panel dry-run-panel" data-page="lottery" aria-labelledby="dryRunHeading" hidden>
       <p class="eyebrow">PREVIEW ONLY</p>
       <h2 id="dryRunHeading">Dry Run</h2>
       <p class="helper-text">This preview is isolated from live results, history, and the trade list. To save, choose a new unique season year different from the simulated year and every saved year, then confirm. Otherwise export or discard it.</p>
@@ -285,7 +285,7 @@
       </div>
     </section>
 
-    <section id="results" class="panel">
+    <section id="results" class="panel" data-page="results">
       <div>
         <p class="eyebrow">STEP 4 · RESULTS</p>
         <h2>Final Draft Order</h2>
@@ -306,7 +306,7 @@
       </div>
     </section>
 
-    <section class="panel" aria-labelledby="bracketHeading">
+    <section class="panel" data-page="results" aria-labelledby="bracketHeading">
       <p class="eyebrow">PLAYOFFS</p>
       <h2 id="bracketHeading">Playoff Bracket</h2>
       <p class="helper-text">Generate a seeded bracket from the available results. Non-power-of-two fields use byes. If the field exceeds the available results, team entries repeat by wrapping the order; review these placeholders before use. Large brackets wrap or scroll on narrow screens. This is a planning tool, not a game simulator.</p>
@@ -326,7 +326,7 @@
       </div>
     </section>
 
-    <section id="history" class="panel">
+    <section id="history" class="panel" data-page="history">
       <div class="section-heading">
         <div>
           <p class="eyebrow">STEP 5 · HISTORY</p>
@@ -399,7 +399,7 @@
       <p class="helper-text">Import an older full-state backup with Import History to access its finalized orders without changing live setup. Assign each verified year in the editor and confirm saving.</p>
     </section>
 
-    <section class="panel">
+    <section class="panel" data-page="results">
       <div>
         <p class="eyebrow">AUDIT</p>
         <h2>Draw Metadata</h2>
@@ -409,7 +409,7 @@
       </div>
     </section>
 
-    <section class="panel">
+    <section class="panel" data-page="history">
       <div class="section-heading">
         <div>
           <p class="eyebrow">SEASONS</p>
@@ -423,7 +423,7 @@
       </div>
     </section>
 
-    <section class="panel">
+    <section class="panel" data-page="lottery">
       <div class="section-heading">
         <div>
           <p class="eyebrow">RULES</p>
@@ -446,7 +446,7 @@
       </div>
     </section>
 
-    <section class="panel">
+    <section class="panel" data-page="lottery">
       <div>
         <p class="eyebrow">RULE HISTORY</p>
         <h2>Rule Versions</h2>
@@ -457,7 +457,7 @@
       </div>
     </section>
 
-    <section class="panel">
+    <section class="panel" data-page="results">
       <div class="section-heading">
         <div>
           <p class="eyebrow">TRADES</p>
@@ -492,7 +492,7 @@
       </div>
     </section>
 
-    <section class="panel export-panel">
+    <section class="panel export-panel" data-page="results">
       <div>
         <p class="eyebrow">SHARE</p>
         <h2>Export Results</h2>
@@ -507,7 +507,7 @@
       </div>
     </section>
 
-    <section class="panel" aria-labelledby="recoveryHeading">
+    <section class="panel" data-page="history" aria-labelledby="recoveryHeading">
       <p class="eyebrow">RECOVERY</p>
       <h2 id="recoveryHeading">Recover Saved History</h2>
       <p class="helper-text">Paste a supported history JSON backup or select a file, then preview before merging. Recovery is explicit: it never guesses missing results or silently replaces live setup. Check any checksum warning and conflicting years before confirming.</p>
@@ -522,7 +522,7 @@
       <div id="recoveryPreview" class="recovery-preview" role="status" aria-live="polite"></div>
     </section>
 
-    <section id="how-it-works" class="panel info-content">
+    <section id="how-it-works" class="panel info-content" data-page="help">
       <p class="eyebrow">HOW IT WORKS</p>
       <h2>The lottery, explained</h2>
       <div class="explain-grid">
@@ -578,6 +578,7 @@
     </div>
   </dialog>
 
+  <script src="navigation.js"></script>
   <script src="supabase-config.js"></script>
   <script src="supabase-history.js"></script>
   <script src="lottery-order.js"></script>
