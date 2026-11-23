@@ -21,6 +21,9 @@ The Flockville Madden League hub currently includes a static web application for
 - **Enhanced trade cards** — each card shows from/to teams, assets, notes, timestamp, and manual/auto-generated badge
 - **Lottery history** — full draw order per finalized season, linked to the rule version in effect
 - **Season Discord export** — copy any individual season as a Discord announcement; copy all seasons at once
+- **Ability Guide** — browse the user-provided Madden 27 chart with search, position/type filters, and sortable columns
+- **Optional Supabase archive** — league admins can sync and restore year-keyed lottery history across browsers while local storage and JSON backups continue to work
+- Original animated raven emblem and responsive navigation for the FLOCKVILLE HUB
 - **Rule tracking** — active rules are always visible; every settings change creates a versioned rule snapshot
 - Versioned localStorage persistence (teams, settings, results, trades, lock state, seed, history, rule history)
 - Season finalization workflow with automatic cooldown flag rollover
@@ -29,7 +32,7 @@ The Flockville Madden League hub currently includes a static web application for
 - Optional deterministic seeded mode for repeatable audits
 - Draw audit metadata panel
 - Mobile-friendly layout
-- No backend or database required
+- No backend required for local use; Supabase is an optional cloud archive
 - One-step trade undo, CSV and table exports, and required-trade review before finalizing
 - Isolated dry-run previews with explicit save, discard, and export
 - Playoff brackets for 2–64 teams with byes and CSV/text exports
@@ -96,7 +99,7 @@ Example:
 3. Click **Save / Confirm Past Draft**, check the confirmation, and save. **Edit Selected Year** opens a saved record for corrections; replacing any existing year requires confirmation. Other years and live setup/results stay unchanged. Known optional metadata is retained where the edited picks remain unchanged.
 4. Select the **next season year** in Run the Lottery. Review the protection source and the automatically checked **Previous Top 3? / Previous #1?** columns. These use only the exact preceding year, by original team, not pick owner. Viewing another history year does not change live results or the protection source.
 5. Review the independent rule toggles, current standings, owners and odds; run the **new** lottery. Impossible protection combinations stop with a message rather than silently permitting a repeat.
-6. **Export History** and **Download JSON** for backups. Storage is browser-local, not server-synced; exports are backups for another browser/device or data loss.
+6. **Export History** and **Download JSON** for backups. History stays in browser storage by default; configure the optional Supabase archive below to sync between devices.
 
 No screenshot has been uploaded to the app: screenshots are transcribed manually. Unsaved past results cannot be recovered automatically; do not rerun an old lottery to reconstruct them.
 
@@ -158,6 +161,7 @@ Select **Playoff teams** (2–64, default 8), then **Generate Bracket** from the
 - Pick a year in the **Past Lotteries** dropdown to view its full results and trades. **Delete This Year** removes one saved year after you confirm.
 - **Export History** downloads all saved years as JSON. **Import History** accepts a history export or a full app export, merges it in, and asks before replacing years you already have.
 - History is stored in its own localStorage key (`flockvilleDraftLotteryHistory`), so **Reset** does not delete it.
+- The optional Supabase archive stores the same year-keyed records. Only accounts explicitly listed as Flockville admins can read or change cloud history; local history continues to work without Supabase.
 - **Finalize Season** archives the live draw using its recorded year (not a subsequently selected year) and advances to the following season. Protections already come from Past Lotteries; finalizing a historical draw is not necessary. Legacy live results without a verified year must be assigned through the history editor.
 - **Archive This Year** hides a record from the default year list without deleting it. Enable **Show archived years** to view it and restore it using the archive action. Archived records still supply exact-prior-year protection and remain in backups.
 
@@ -171,7 +175,19 @@ Per-flag overrides apply only to their recorded season and do not edit history o
 
 In **Recover Saved History**, paste a supported history JSON backup or choose a JSON file, click **Preview Recovery**, inspect the years and warnings, and then click **Merge Recovery**. Previewing does not modify saved records. Merging is explicit and asks before replacing conflicting years; live setup/results are not silently replaced. Recovery uses supplied records only: it cannot retrieve unsaved draws, infer actual years, or reconstruct screenshots.
 
-All JSON exports include a **SHA-256 checksum** generated with Web Crypto, which requires a supported secure context such as **HTTPS or localhost**. If Web Crypto is unavailable, the app reports an explicit export error; it does not silently omit the checksum. A checksum mismatch warns that content may have changed or been damaged; review the source before deciding to import. A checksum is an integrity aid, not proof of authorship or a security signature. Older compatible backups without checksum metadata remain usable. Keep independent exported backups: browser-local storage can be cleared and is not server-synced.
+All JSON exports include a **SHA-256 checksum** generated with Web Crypto, which requires a supported secure context such as **HTTPS or localhost**. If Web Crypto is unavailable, the app reports an explicit export error; it does not silently omit the checksum. A checksum mismatch warns that content may have changed or been damaged; review the source before deciding to import. A checksum is an integrity aid, not proof of authorship or a security signature. Older compatible backups without checksum metadata remain usable. Keep independent exported backups: browser-local storage can be cleared, and cloud sync is optional.
+
+### Configure the optional Supabase archive
+
+The website can run without a database. To share lottery history across devices, create a Supabase project and:
+
+1. Open the project's SQL Editor and run [`../supabase/schema.sql`](../supabase/schema.sql). Row-level security keeps the archive private to authorized league admins.
+2. Invite the administrator from **Authentication → Users**. In the SQL file, replace the example email and run the commented insert statement as the project owner to authorize that account.
+3. Add the deployed app URL to Supabase **Authentication → URL Configuration → Redirect URLs**.
+4. Put the project URL and its **publishable** (or legacy anon) key in `supabase-config.js`. These browser values are public; **never** put a `service_role` or secret key in this file or the website.
+5. Reload the site, enter the admin email under **Past Lotteries → Supabase History**, and open the sign-in link in the same browser. Cloud history loads and merges with local years; publishing local history requires an explicit confirmation. Edits synchronize while signed in, and deleting a year also deletes that cloud year.
+
+Use the **Publish Local History** button to upload existing browser records to a new archive. Keep JSON exports as backups. Supabase credentials are not included in this repository; without configuration, cloud controls remain disabled and local features are unchanged.
 
 ## Discord Exports
 

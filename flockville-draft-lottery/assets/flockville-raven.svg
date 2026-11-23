@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-labelledby="title desc">
+  <title id="title">Flockville raven</title>
+  <desc id="desc">A dimensional raven emblem in midnight blue, violet, and teal.</desc>
+  <defs>
+    <linearGradient id="coin" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#292047"/>
+      <stop offset=".58" stop-color="#17152b"/>
+      <stop offset="1" stop-color="#0d2730"/>
+    </linearGradient>
+    <linearGradient id="feather" x1=".12" y1=".08" x2=".92" y2=".94">
+      <stop stop-color="#a78be2"/>
+      <stop offset=".34" stop-color="#5a4789"/>
+      <stop offset=".7" stop-color="#29263f"/>
+      <stop offset="1" stop-color="#101c29"/>
+    </linearGradient>
+    <linearGradient id="wing" x1=".1" y1="0" x2=".9" y2="1">
+      <stop stop-color="#eee7ff"/>
+      <stop offset=".2" stop-color="#8f78bd"/>
+      <stop offset=".58" stop-color="#4f416f"/>
+      <stop offset="1" stop-color="#202238"/>
+    </linearGradient>
+    <linearGradient id="beak" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#b9f1dc"/>
+      <stop offset=".4" stop-color="#4bb4a4"/>
+      <stop offset="1" stop-color="#176f6b"/>
+    </linearGradient>
+    <radialGradient id="eyeGlow">
+      <stop stop-color="#fff5c4"/>
+      <stop offset=".35" stop-color="#f8c75e"/>
+      <stop offset="1" stop-color="#db743a"/>
+    </radialGradient>
+    <filter id="shadow" x="-35%" y="-35%" width="170%" height="180%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="5"/>
+      <feOffset dy="5"/>
+      <feComponentTransfer><feFuncA type="linear" slope=".45"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <style>
+    .coin { fill: url(#coin); stroke: #b6a1e2; stroke-width: 4; }
+    .ring { fill: none; stroke: #43b9a5; stroke-width: 2; opacity: .8; }
+    .halo { fill: none; stroke: #b7a2e3; stroke-width: 1.5; opacity: .55; }
+    .raven { filter: url(#shadow); transform-origin: 120px 120px; animation: hover 4.8s ease-in-out infinite; }
+    .wing-feather { transform-origin: 146px 113px; animation: wing 5.8s ease-in-out infinite; }
+    .eye-light { transform-origin: 124px 65px; animation: glint 3.6s ease-in-out infinite; }
+    @keyframes hover { 0%, 100% { transform: translateY(1px); } 50% { transform: translateY(-4px); } }
+    @keyframes wing { 0%, 100% { transform: rotate(0deg); } 50% { transform: rotate(-2deg); } }
+    @keyframes glint { 0%, 84%, 100% { opacity: .78; } 90% { opacity: 1; } 94% { opacity: .58; } }
+    @media (prefers-reduced-motion: reduce) {
+      .raven, .wing-feather, .eye-light { animation: none; }
+    }
+  </style>
+  <circle class="coin" cx="120" cy="120" r="111"/>
+  <circle class="ring" cx="120" cy="120" r="99"/>
+  <path class="halo" d="M37 157c-11-25-10-52 2-76M200 84c12 25 12 51 1 77"/>
+  <g class="raven">
+    <path d="M68 142c17-17 32-37 40-62 7-22 22-38 44-39 17-1 32 7 42 21l27 10-25 10c-4 18-17 30-35 33l-18 25-42 21-33-4z" fill="url(#feather)" stroke="#d3c3f1" stroke-width="2.2" stroke-linejoin="round"/>
+    <path d="m193 61 35 10-34 11c-8 2-15 0-22-5l-7-5c8-8 17-12 28-11z" fill="url(#beak)" stroke="#d8fff1" stroke-width="1.5" stroke-linejoin="round"/>
+    <path d="M111 100c24-21 56-23 84-10-12 26-31 45-59 58l-35 16-27-13c17-13 28-29 37-51z" fill="url(#wing)" stroke="#bca9e3" stroke-width="2"/>
+    <g class="wing-feather" fill="none" stroke-linecap="round">
+      <path d="M104 137c29-25 54-35 83-42" stroke="#d2c3ee" stroke-width="4" opacity=".8"/>
+      <path d="M112 148c27-22 49-31 70-35" stroke="#8fd6cb" stroke-width="3" opacity=".72"/>
+      <path d="M124 155c20-17 37-24 53-27" stroke="#c1b2e3" stroke-width="2.5" opacity=".7"/>
+      <path d="M139 159c14-12 25-17 37-20" stroke="#7abdaf" stroke-width="2" opacity=".68"/>
+    </g>
+    <path d="M86 147c19 4 38 1 56-9l-10 26-33 20-30-13z" fill="#29243e" stroke="#9b87c8" stroke-width="1.5"/>
+    <path d="m99 172 7 18 7-1 2-18m17-10 5 19 7-1 1-27" fill="none" stroke="#ba9cde" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M78 192h79" fill="none" stroke="#45ad9d" stroke-width="4" stroke-linecap="round"/>
+    <path d="m123 60 17-9m-25 17 10-13m4 20 18-7" fill="none" stroke="#d2c4f1" stroke-width="3" stroke-linecap="round" opacity=".7"/>
+    <path d="M120 59c5-5 12-6 18-3-3 7-8 11-16 12z" fill="#121726" stroke="#c3a9ed" stroke-width="1"/>
+    <circle class="eye-light" cx="126" cy="63" r="4.3" fill="url(#eyeGlow)"/>
+    <circle cx="127" cy="63" r="1.3" fill="#251b2f"/>
+    <path d="M100 114c-10 11-18 23-25 35" fill="none" stroke="#a995d5" stroke-width="2" opacity=".7"/>
+  </g>
+</svg>
