@@ -187,7 +187,7 @@ The website can run without a database. To share lottery history across devices,
 4. Put the project URL and its **publishable** (or legacy anon) key in `supabase-config.js`. These browser values are public; **never** put a `service_role` or secret key in this file or the website.
 5. Reload the site, enter the admin email under **Past Lotteries → Supabase History**, and open the sign-in link in the same browser. Cloud history loads and merges with local years; publishing local history requires an explicit confirmation. Edits synchronize while signed in, and deleting a year also deletes that cloud year.
 
-Use the **Publish Local History** button to upload existing browser records to a new archive. Keep JSON exports as backups. Supabase credentials are not included in this repository; without configuration, cloud controls remain disabled and local features are unchanged.
+Use the **Publish Local History** button to upload existing browser records to a new archive. Keep JSON exports as backups. The configured project URL and publishable key are public browser configuration; database access is controlled by the admin-only row-level security policies. Without configuration, cloud controls remain disabled and local features are unchanged.
 
 ## Discord Exports
 
