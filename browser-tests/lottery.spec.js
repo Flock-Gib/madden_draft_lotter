@@ -13,7 +13,7 @@ test.afterEach(async ({ page }) => {
 });
 
 test("FLOCKVILLE HUB branding is consistent across the app and guide pages", async ({ page }) => {
-  await expect(page).toHaveTitle("FLOCKVILLE HUB | Draft Lottery");
+  await expect(page).toHaveTitle("FLOCKVILLE HUB | Ability Guide & Draft Lottery");
   await expect(page.locator("header h1")).toHaveText("FLOCKVILLE HUB");
   await page.goto("/info.html");
   await expect(page).toHaveTitle("FLOCKVILLE HUB | How It Works");

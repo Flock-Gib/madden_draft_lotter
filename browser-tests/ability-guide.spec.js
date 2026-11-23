@@ -6,6 +6,17 @@ test("ability chart loads, sorts, searches, filters, and stays contained on desk
   await expect(page.locator(".ability-count-badge")).toContainText("360 chart entries");
   await expect(rows).toHaveCount(360);
 
+  const expectedPositions = ["QB", "HB", "FB", "WR", "TE", "OL", "EDGE", "DT", "MIKE", "OLB", "CB", "S", "K-P"];
+  const groups = await page.locator("#abilityPosition optgroup").evaluateAll((nodes) =>
+    nodes.map((node) => ({ label: node.label, positions: [...node.children].map((option) => option.value) })));
+  expect(groups.map((group) => group.label)).toEqual(["Offense", "Defense", "Special teams"]);
+  expect(groups.flatMap((group) => group.positions)).toEqual(expectedPositions);
+  const positions = () => page.locator("#abilityTableBody tr td:first-child").allTextContents();
+  expect([...new Set(await positions())]).toEqual(expectedPositions);
+  await page.locator('th[data-sort="position"] button').click();
+  expect([...new Set(await positions())]).toEqual([...expectedPositions].reverse());
+
+  await page.locator('th[data-sort="ability"] button').click();
   const abilityCells = page.locator("#abilityTableBody tr td:nth-child(3)");
   const firstAscending = await abilityCells.first().textContent();
   await page.locator('th[data-sort="ability"] button').click();
@@ -36,4 +47,15 @@ test("ability chart loads, sorts, searches, filters, and stays contained on desk
   expect(layout.pageWidth).toBe(viewportWidth);
   expect(layout.wrapperWidth).toBeLessThanOrEqual(viewportWidth);
   expect(layout.tableWidth).toBeGreaterThan(layout.wrapperWidth);
+
+  const style = await page.evaluate(() => ({
+    background: getComputedStyle(document.querySelector(".ability-guide")).backgroundColor,
+    text: getComputedStyle(document.querySelector(".ability-guide")).color,
+    positionWidth: document.querySelector('.ability-table th[data-sort="position"]').getBoundingClientRect().width,
+    typeWrap: getComputedStyle(document.querySelector(".ability-table td:nth-child(2)")).overflowWrap,
+  }));
+  expect(style.background).toBe("rgb(24, 20, 33)");
+  expect(style.text).toBe("rgb(244, 239, 255)");
+  expect(style.positionWidth).toBeGreaterThanOrEqual(100);
+  expect(style.typeWrap).toBe("normal");
 });

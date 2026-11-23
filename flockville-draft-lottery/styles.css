@@ -1,34 +1,34 @@
 @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&display=swap');
 
 :root {
-  color-scheme: light;
-  --bg: #f4f1fc;
-  --surface: #ffffff;
+  color-scheme: dark;
+  --bg: #0c0a13;
+  --surface: #181421;
   --panel: var(--surface);
-  --panel-2: #fbfaff;
-  --surface-soft: #f1ecfb;
-  --surface-hover: #e9e0fa;
-  --text: #272039;
-  --purple: #6931cf;
-  --text-accent: #5926ad;
+  --panel-2: #201a2c;
+  --surface-soft: #2a2239;
+  --surface-hover: #362a4e;
+  --text: #f4efff;
+  --purple: #7040bf;
+  --text-accent: #d7bcff;
   --purple-light: var(--text-accent);
-  --accent-hover: #5423af;
-  --text-danger: #a63350;
+  --accent-hover: #5e30a8;
+  --text-danger: #ff9aaf;
   --red: var(--text-danger);
-  --danger-surface: #fff0f3;
-  --danger-hover: #ffe0e8;
-  --danger-border: #c1667c;
-  --success: #106b62;
-  --success-surface: #e4f5f1;
-  --warning: #805500;
-  --warning-surface: #fff5db;
-  --warning-border: #b68a27;
-  --text-muted: #625974;
+  --danger-surface: #3a202e;
+  --danger-hover: #51283b;
+  --danger-border: #b96980;
+  --success: #89dec4;
+  --success-surface: #18352f;
+  --warning: #f7cc78;
+  --warning-surface: #382d1a;
+  --warning-border: #b28a46;
+  --text-muted: #c9c0d8;
   --muted: var(--text-muted);
-  --border: #dcd3eb;
-  --control-border: #88779f;
-  --focus: #6931cf;
-  --shadow: 0 12px 36px rgba(72, 42, 117, 0.07), 0 2px 5px rgba(72, 42, 117, 0.03);
+  --border: #554864;
+  --control-border: #9c8bae;
+  --focus: #d7bcff;
+  --shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
   --space: clamp(24px, 3vw, 40px);
 }
 
@@ -43,8 +43,8 @@ body {
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   line-height: 1.6;
   background:
-    radial-gradient(ellipse at 15% 0%, rgba(140, 97, 226, 0.12), transparent 48rem),
-    radial-gradient(ellipse at 95% 15%, rgba(27, 151, 137, 0.06), transparent 40rem),
+    radial-gradient(ellipse at 15% 0%, rgba(110, 63, 180, 0.18), transparent 48rem),
+    radial-gradient(ellipse at 95% 15%, rgba(27, 151, 137, 0.08), transparent 40rem),
     var(--bg);
 }
 
@@ -98,7 +98,8 @@ button {
   border-color: transparent;
   border-radius: 50%;
   background: transparent;
-  filter: drop-shadow(0 10px 18px rgba(49, 35, 83, 0.22));
+  box-shadow: none;
+  filter: drop-shadow(0 12px 20px rgba(0, 0, 0, 0.55));
 }
 
 .ability-guide {
@@ -135,18 +136,41 @@ button {
 
 .ability-table-wrap {
   max-width: 100%;
-  overscroll-behavior-x: contain;
+  max-height: 680px;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .odds-table.ability-table {
-  min-width: 1450px;
-  table-layout: auto;
+  min-width: 1750px;
+  table-layout: fixed;
 }
 
+.ability-table th:nth-child(1) { width: 100px; }
+.ability-table th:nth-child(2) { width: 120px; }
+.ability-table th:nth-child(3) { width: 180px; }
+.ability-table th:nth-child(4) { width: 180px; }
+.ability-table th:nth-child(5) { width: 120px; }
+.ability-table th:nth-child(6) { width: 120px; }
+.ability-table th:nth-child(7),
+.ability-table th:nth-child(8),
+.ability-table th:nth-child(9) { width: 310px; }
+
 .ability-table td {
-  max-width: 340px;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   vertical-align: top;
+}
+
+.ability-table th,
+.ability-table td:nth-child(-n + 2) {
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.ability-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
 .ability-sort {
@@ -602,7 +626,7 @@ tbody tr:focus-within {
   border: 1px solid var(--border);
   border-radius: 24px;
   background:
-    radial-gradient(ellipse at 50% 35%, #e7ddfc, transparent 65%),
+    radial-gradient(ellipse at 50% 35%, #39264e, transparent 65%),
     linear-gradient(135deg, var(--panel-2), var(--surface-soft));
   text-align: center;
 }
@@ -864,7 +888,7 @@ tbody tr:focus-within {
   height: 48px;
   border: 2px solid var(--purple);
   border-radius: 50%;
-  color: var(--purple-light);
+  color: #442478;
   background: radial-gradient(circle at 30% 25%, #fff, #e3d4fa);
   font-weight: 800;
   opacity: 0;
@@ -1322,7 +1346,7 @@ section[id] {
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.96);
+  background: rgba(24, 20, 33, 0.97);
   box-shadow: var(--shadow);
   backdrop-filter: blur(12px);
 }
@@ -1427,7 +1451,7 @@ section[id] {
   right: -6px;
   bottom: -4px;
   padding: 0 3px;
-  color: #fff;
+  color: #10251e;
   border-radius: 50%;
   background: var(--success);
   font: bold 0.75rem/1.4 system-ui, sans-serif;

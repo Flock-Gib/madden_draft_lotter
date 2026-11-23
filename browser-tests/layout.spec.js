@@ -138,7 +138,7 @@ test("text and form boundaries meet contrast targets", async ({ page }) => {
   expect(await contrastFailures(page)).toEqual([]);
 });
 
-test("bright component states remain readable across editors, dialogs, history, recovery, and guide", async ({ page }) => {
+test("dark component states remain readable across editors, dialogs, history, recovery, and guide", async ({ page }) => {
   await loadPreview(page);
   await page.locator("#setupLockBtn").click();
   await page.locator("#newHistoryBtn").click();

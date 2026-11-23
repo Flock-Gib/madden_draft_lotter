@@ -144,7 +144,13 @@ const supabaseHistoryClient = globalThis.flockvilleSupabaseHistory?.createClient
   globalThis.FLOCKVILLE_SUPABASE_CONFIG || {},
 );
 let abilityChartEntries = [];
-let abilitySortKey = "ability";
+const abilityPositionGroups = [
+  { label: "Offense", positions: ["QB", "HB", "FB", "WR", "TE", "OL"] },
+  { label: "Defense", positions: ["EDGE", "DT", "MIKE", "OLB", "CB", "S"] },
+  { label: "Special teams", positions: ["K-P"] },
+];
+const abilityPositionOrder = abilityPositionGroups.flatMap((group) => group.positions);
+let abilitySortKey = "position";
 let abilitySortDirection = "asc";
 let checksumWarning = "";
 let suppressCloudSync = false;
@@ -1034,6 +1040,14 @@ function renderLotteryStage() {
 }
 
 function compareAbilityValues(a, b, key) {
+  if (key === "position") {
+    const rank = (value) => {
+      const index = abilityPositionOrder.indexOf(value);
+      return index < 0 ? abilityPositionOrder.length : index;
+    };
+    return rank(a[key]) - rank(b[key]) ||
+      String(a[key] || "").localeCompare(String(b[key] || ""), undefined, { sensitivity: "base" });
+  }
   if (key === "requiredRating") {
     const rating = (value) => {
       const match = String(value || "").match(/\d+(?:\.\d+)?/);
@@ -1062,6 +1076,7 @@ function renderAbilityChart() {
       (!abilityType || entry.abilityType === abilityType) &&
       (!query || Object.values(entry).some((value) => String(value).toLowerCase().includes(query))))
     .sort((a, b) => compareAbilityValues(a.entry, b.entry, abilitySortKey) * (abilitySortDirection === "asc" ? 1 : -1) ||
+      (abilitySortKey === "position" ? compareAbilityValues(a.entry, b.entry, "ability") : 0) ||
       a.index - b.index);
   const columns = [
     "position", "abilityType", "ability", "unlockBasis", "requiredRating",
@@ -1099,11 +1114,22 @@ async function initializeAbilityChart() {
       ].map((key) => [key, String(entry[key] || "")])));
     const position = document.getElementById("abilityPosition");
     const type = document.getElementById("abilityType");
-    [...new Set(abilityChartEntries.map((entry) => entry.position))].sort().forEach((value) => {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = value;
-      position.appendChild(option);
+    const positions = new Set(abilityChartEntries.map((entry) => entry.position));
+    const groups = [...abilityPositionGroups, {
+      label: "Other", positions: [...positions].filter((value) => !abilityPositionOrder.includes(value)).sort(),
+    }];
+    groups.forEach((group) => {
+      const available = group.positions.filter((value) => positions.has(value));
+      if (!available.length) return;
+      const optgroup = document.createElement("optgroup");
+      optgroup.label = group.label;
+      available.forEach((value) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = value;
+        optgroup.appendChild(option);
+      });
+      position.appendChild(optgroup);
     });
     [...new Set(abilityChartEntries.map((entry) => entry.abilityType))].sort().forEach((value) => {
       const option = document.createElement("option");
