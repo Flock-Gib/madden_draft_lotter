@@ -2100,7 +2100,7 @@ async function animateLottery(results, runContext) {
     saveLotteryToHistory(results, runContext);
     state.lastRunMeta.completed = true;
     els.drawProgress.textContent = `${results.length} of ${results.length} picks revealed · ${runContext.year}`;
-    els.statusText.textContent = `FLOCKVILLE HUB lottery is complete for ${runContext.year}. Results and trades are in history; export a backup.`;
+    els.statusText.textContent = `The FLOCKVILLE HUB draft lottery is complete for ${runContext.year}. Results and trades are in history; export a backup.`;
   } catch (error) {
     state.results = [];
     if (state.lastRunMeta) state.lastRunMeta.completed = false;
@@ -2189,7 +2189,7 @@ function startLottery() {
 
 function buildDiscordText() {
   const lines = [
-    "# FLOCKVILLE DRAFT LOTTERY RESULTS",
+    "# FLOCKVILLE HUB — DRAFT LOTTERY RESULTS",
     "",
     ...state.results.map((result) => {
       const owner = result.owner !== result.team ? ` — Pick owned by **${result.owner}**` : "";
@@ -2727,7 +2727,7 @@ function generateTradesFromResults() {
 function buildSingleSeasonDiscordText(season) {
   const date = season.finalizedAt ? formatTime(season.finalizedAt) : "Unknown date";
   const lines = [
-    `# FLOCKVILLE DRAFT LOTTERY — SEASON RECAP`,
+    `# FLOCKVILLE HUB — DRAFT LOTTERY SEASON RECAP`,
     `**Finalized:** ${date}`,
     "",
     `**#1 Pick:** ${season.numberOne || "Unknown"}`,
