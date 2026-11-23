@@ -12,6 +12,15 @@ test.afterEach(async ({ page }) => {
   expect(page.__pageErrors).toEqual([]);
 });
 
+test("FLOCKVILLE HUB branding is consistent across the app and guide pages", async ({ page }) => {
+  await expect(page).toHaveTitle("FLOCKVILLE HUB | Draft Lottery");
+  await expect(page.locator("header h1")).toHaveText("FLOCKVILLE HUB");
+  await page.goto("/info.html");
+  await expect(page).toHaveTitle("FLOCKVILLE HUB | How It Works");
+  await expect(page.locator("header h1")).toHaveText("FLOCKVILLE HUB");
+  await expect(page.getByRole("link", { name: "Back to FLOCKVILLE HUB" })).toHaveAttribute("href", "index.html");
+});
+
 /** Configure a reproducible demo without requiring a previous season. */
 async function demo(page) {
   await page.locator("#loadDemoBtn").click();
