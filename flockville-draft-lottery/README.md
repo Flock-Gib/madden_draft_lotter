@@ -1,6 +1,6 @@
-# Flockville Draft Lottery
+# FLOCKVILLE HUB
 
-A static web application for running the Flockville Madden League draft lottery.
+The Flockville Madden League hub currently includes a static web application for running the draft lottery.
 
 ## Features
 
