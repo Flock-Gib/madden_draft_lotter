@@ -2,6 +2,7 @@ const { test, expect } = require("@playwright/test");
 const fs = require("node:fs/promises");
 
 test.beforeEach(async ({ page }) => {
+  await page.route("**/supabase-config.js", (route) => route.fulfill({ contentType: "application/javascript", body: "window.FLOCKVILLE_SUPABASE_CONFIG = {};" }));
   page.__pageErrors = [];
   page.on("pageerror", (error) => page.__pageErrors.push(error.message));
   page.on("dialog", (dialog) => dialog.accept());
@@ -15,7 +16,7 @@ test.beforeEach(async ({ page }) => {
       if (index >= 0) sheet.deleteRule(index);
     });
   });
-  await page.goto("/");
+  await page.goto("/?page=lottery");
 });
 
 test.afterEach(async ({ page }) => {

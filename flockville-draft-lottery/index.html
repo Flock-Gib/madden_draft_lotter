@@ -29,12 +29,56 @@
     </header>
 
     <nav class="site-nav" aria-label="Main sections">
+      <a href="?page=home">Home</a>
       <a href="?page=ability">Ability Guide</a>
       <a href="?page=lottery">Lottery</a>
       <a href="?page=results">Results</a>
       <a href="?page=history">History</a>
+      <a href="?page=live">Watch live</a>
       <a href="?page=help">How it works</a>
     </nav>
+
+    <aside id="memberNotice" class="hub-notice" hidden>
+      <strong>Member view</strong><span class="hub-member-help"> · Browse the guide, history and live draws.</span>
+      <a href="?page=history#cloudHistoryHeading">Commissioner sign-in</a>
+    </aside>
+
+    <section id="home" class="panel" data-page="home" aria-labelledby="homeHeading">
+      <p class="eyebrow">WELCOME TO THE FLOCK</p>
+      <h2 id="homeHeading">Your league. One home.</h2>
+      <p class="helper-text">League news, draft night and the tools you need for the next season.</p>
+      <p id="hubStatus" role="status" class="helper-text">Loading league information…</p>
+      <div id="homeStats" class="hub-card-grid"></div>
+      <div class="hub-card-grid hub-links">
+        <a href="?page=ability"><strong>Ability guide</strong><span>Find, favorite and compare player abilities.</span></a>
+        <a href="?page=live"><strong>Draft night live</strong><span>Follow the commissioner’s reveals on any device.</span></a>
+        <a href="?page=history"><strong>League history</strong><span>Search past picks and compare seasons.</span></a>
+      </div>
+      <h3>League announcements</h3>
+      <div id="homeAnnouncements"></div>
+      <h3>Next league event</h3>
+      <div id="homeEvent"></div>
+      <details class="commissioner-only hub-editor">
+        <summary>Edit league dashboard</summary>
+        <p class="helper-text">Published to everyone. Do not include private information. Event time uses your current time zone.</p>
+        <label>Current season <input id="hubSeason" type="number" min="1000" max="9999" /></label>
+        <label>Announcements (one per line) <textarea id="hubAnnouncements" rows="4" maxlength="4000"></textarea></label>
+        <label>Event title <input id="hubEventTitle" maxlength="120" /></label>
+        <label>Event time <input id="hubEventTime" type="datetime-local" /></label>
+        <button id="hubSaveBtn" class="button primary">Publish dashboard</button>
+      </details>
+    </section>
+
+    <section id="live" class="panel" data-page="live" aria-labelledby="liveHeading">
+      <div class="section-heading">
+        <div><p class="eyebrow">FLOCKVILLE BROADCAST</p><h2 id="liveHeading">Draft night live</h2></div>
+        <button id="liveFullscreenBtn" class="button secondary">Fullscreen broadcast</button>
+      </div>
+      <p class="helper-text">Reveals update about every two seconds. Only picks already revealed by the commissioner are shared.</p>
+      <p id="liveStatus" role="status">Connecting to the broadcast…</p>
+      <div id="liveWinner" class="hub-live-winner"></div>
+      <ol id="livePicks" class="hub-live-picks"></ol>
+    </section>
 
     <section id="ability-guide" class="panel ability-guide" data-page="ability" aria-labelledby="abilityGuideHeading">
       <div class="section-heading">
@@ -61,6 +105,16 @@
         <button id="clearAbilityFilters" class="button secondary" type="button">Clear filters</button>
       </div>
       <div id="abilityPositionNav" class="ability-position-nav" role="group" aria-label="Quick position filters"></div>
+      <div class="button-row hub-guide-tools">
+        <label class="check-label"><input id="abilityFavoritesOnly" type="checkbox" /> Favorites only</label>
+        <button id="abilityShareBtn" class="button secondary">Share these filters</button>
+        <label id="abilityShareUrlLabel" hidden>Shareable guide URL <input id="abilityShareUrl" type="text" readonly hidden aria-label="Shareable guide URL" /></label>
+      </div>
+      <section id="abilityComparePanel" class="hub-comparison" aria-label="Ability comparison" hidden>
+        <h3>Compare abilities</h3>
+        <div id="abilityCompareEntries" class="hub-card-grid"></div>
+        <button id="abilityClearCompareBtn" class="button secondary">Clear comparison</button>
+      </section>
       <div class="ability-browse-bar">
         <p id="abilityCount" class="helper-text" role="status" aria-live="polite">Loading ability chart…</p>
         <div class="ability-sort-controls">
@@ -106,7 +160,7 @@
       <p class="helper-text">Requirements and verification notes are from the league-provided spreadsheet. Always confirm current in-game availability before using an ability.</p>
     </section>
 
-    <section class="panel flow-panel" data-page="lottery" aria-labelledby="flowHeading">
+    <section class="panel flow-panel commissioner-only" data-page="lottery" aria-labelledby="flowHeading">
       <p class="eyebrow">START HERE</p>
       <h2 id="flowHeading">Step-by-step</h2>
       <ol id="flowSteps" class="flow-steps">
@@ -118,7 +172,7 @@
       </ol>
     </section>
 
-    <section id="setup" class="panel controls" data-page="lottery">
+    <section id="setup" class="panel controls commissioner-only" data-page="lottery">
       <div class="section-heading">
         <div>
           <p class="eyebrow">STEP 1 · SETUP</p>
@@ -174,7 +228,7 @@
       <div id="mobileTeamList" class="mobile-team-list" aria-label="Lottery team setup"></div>
     </section>
 
-    <section class="panel settings-grid" data-page="lottery">
+    <section class="panel settings-grid commissioner-only" data-page="lottery">
       <div>
         <p class="eyebrow">RULES</p>
         <h2>Lottery Settings</h2>
@@ -244,13 +298,15 @@
           <p class="eyebrow">STEP 3 · LIVE DRAW</p>
           <h2>Run the Lottery</h2>
         </div>
-        <div class="draw-start">
+        <div class="draw-start commissioner-only">
           <label class="year-field" title="Results and trades are saved to history under this year. Re-running a saved year asks before replacing it.">
             <span>Season year</span>
             <input id="seasonYearInput" type="number" min="1000" max="9999" step="1" inputmode="numeric" />
           </label>
           <button id="startLotteryBtn" class="button glow">Start Lottery</button>
           <button id="dryRunBtn" class="button secondary" title="Preview a draw without saving live results, history, or trades.">Dry Run</button>
+          <label class="check-label"><input id="broadcastEnabled" type="checkbox" /> Broadcast this draw live</label>
+          <p id="broadcastStatus" class="helper-text" role="status"></p>
         </div>
       </div>
 
@@ -317,6 +373,7 @@
     </section>
 
     <section id="results" class="panel" data-page="results">
+      <div id="memberResults" hidden></div>
       <div>
         <p class="eyebrow">STEP 4 · RESULTS</p>
         <h2>Final Draft Order</h2>
@@ -416,8 +473,27 @@
         </div>
       </div>
       <label class="check-label"><input id="showArchivedToggle" class="inline-check" type="checkbox" /> Show archived years</label>
+      <section id="historyExplorer" class="hub-comparison" aria-labelledby="historyExplorerHeading">
+        <h3 id="historyExplorerHeading">Explore league history</h3>
+        <div class="hub-filter-grid">
+          <label>Original team <input id="historyTeamSearch" type="search" placeholder="Search an original team…" /></label>
+          <label>From season <input id="historyFromYear" type="number" min="1000" max="9999" /></label>
+          <label>Through season <input id="historyToYear" type="number" min="1000" max="9999" /></label>
+          <label>Compare viewed season with <select id="historyCompareYear"><option value="">Choose a season</option></select></label>
+        </div>
+        <p id="historySearchSummary" class="helper-text" role="status"></p>
+        <div id="historySearchResults"></div>
+        <div id="historyComparison"></div>
+      </section>
       <p class="helper-text">Archiving hides a year from the default view without deleting it or removing its protection data. Show archived years to view or restore it.</p>
       <div id="historyDetail" class="history-detail"></div>
+      <details class="commissioner-only hub-editor">
+        <summary>Database backups and edit log</summary>
+        <p class="helper-text">Each database insert, update and deletion stores a server-side snapshot automatically. Download snapshots for an independent backup; restoring one requires the explicit correction workflow.</p>
+        <button id="hubAuditLoadBtn" class="button secondary">Load database edit log</button>
+        <p id="hubAuditStatus" role="status"></p>
+        <div id="hubAuditLog"></div>
+      </details>
       <div class="button-row">
         <button id="newHistoryBtn" class="button secondary">Enter a Past Draft</button>
         <button id="editHistoryBtn" class="button secondary" disabled>Edit Selected Year</button>
@@ -575,6 +651,8 @@
     <section id="how-it-works" class="panel info-content" data-page="help">
       <p class="eyebrow">HOW IT WORKS</p>
       <h2>The lottery, explained</h2>
+      <p class="helper-text">Members can browse Home, the Ability Guide, Results, History and Watch live without signing in. Commissioners sign in on History to manage the league and run draws. Favorite or compare abilities in the guide, share filtered URLs, and search original teams or compare seasons in History.</p>
+      <p class="helper-text">To share draft night, commissioners enable Broadcast this draw live before starting and share the Watch live page. Only revealed picks are sent; viewers update about every two seconds. Finalized-result changes require a correction reason. Commissioners can download prior database revisions from History → Database backups and edit log and explicitly import them to recover a record.</p>
       <div class="explain-grid">
         <article>
           <h3 class="subheading">Who is eligible</h3>
@@ -639,5 +717,7 @@
   <script src="lottery-ball-sim.js"></script>
   <script src="lottery-stage-3d.js"></script>
   <script src="app.js"></script>
+  <script src="league-hub.js"></script>
+  <script src="history-browser.js"></script>
 </body>
 </html>

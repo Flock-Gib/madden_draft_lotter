@@ -1,5 +1,85 @@
 const { test, expect } = require("@playwright/test");
 
+test("favorites persist and comparison supports up to three complete entries", async ({ page }) => {
+  await page.goto("/?page=ability");
+  const rows = page.locator("#abilityTableBody tr");
+  await expect(rows).toHaveCount(25);
+  const firstName = await rows.nth(0).locator("td").nth(2).textContent();
+  for (let index = 0; index < 4; index++) {
+    const row = rows.nth(index);
+    await row.locator("summary").click();
+    if (index === 0) await row.getByRole("button", { name: /to favorites/ }).click();
+    await row.getByRole("button", { name: /to comparison/ }).click();
+  }
+  const cards = page.locator("#abilityCompareEntries article");
+  await expect(cards).toHaveCount(3);
+  await expect(page.getByText("Compare up to 3 abilities.", { exact: false })).toBeVisible();
+  await expect(cards.first().locator("dt")).toHaveCount(9);
+  await cards.first().getByRole("button", { name: /from comparison/ }).click();
+  await expect(cards).toHaveCount(2);
+  await page.locator("#abilityClearCompareBtn").click();
+  await expect(page.locator("#abilityComparePanel")).toBeHidden();
+  await page.locator("#abilityFavoritesOnly").check();
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText(firstName);
+  await page.reload();
+  await expect(page.locator("#abilityFavoritesOnly")).toBeChecked();
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText(firstName);
+  await rows.first().locator("summary").click();
+  await rows.first().getByRole("button", { name: /from favorites/ }).click();
+  await expect(page.locator("#abilityCount")).toContainText("No matches");
+});
+
+test("shareable filters validate, follow history and expose a clipboard fallback", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: {
+      writeText: async () => { throw new Error("blocked"); },
+    } });
+  });
+  await page.goto("/?page=ability&season=2026&q=Bazooka&pos=QB&type=X-Factor&sort=ability&dir=desc&favorites=0");
+  await expect(page.locator("#abilitySearch")).toHaveValue("Bazooka");
+  await expect(page.locator("#abilityPosition")).toHaveValue("QB");
+  await expect(page.locator("#abilitySortDirection")).toHaveText("Descending");
+  await page.locator("#abilityShareBtn").click();
+  const fallback = page.locator("#abilityShareUrl");
+  await expect(fallback).toBeVisible();
+  await expect(fallback).toHaveAttribute("readonly", "");
+  const shared = new URL(await fallback.inputValue());
+  expect(shared.searchParams.get("page")).toBe("ability");
+  expect(shared.searchParams.get("season")).toBe("2026");
+  expect(shared.searchParams.get("q")).toBe("Bazooka");
+  expect(shared.searchParams.get("dir")).toBe("desc");
+  await page.evaluate(() => {
+    history.pushState({}, "", "?page=ability&q=Zone&pos=invalid&type=invalid&sort=invalid&dir=invalid&favorites=yes");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
+  await expect(page.locator("#abilitySearch")).toHaveValue("Zone");
+  await expect(page.locator("#abilityPosition")).toHaveValue("");
+  await expect(page.locator("#abilityType")).toHaveValue("");
+  await expect(page.locator("#abilitySort")).toHaveValue("position");
+  await expect(page.locator("#abilityFavoritesOnly")).not.toBeChecked();
+  await page.goBack();
+  await expect(page.locator("#abilitySearch")).toHaveValue("Bazooka");
+  await expect(page.locator("#abilityPosition")).toHaveValue("QB");
+});
+
+test("favorite storage failures are reported without claiming the change was saved", async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (key === "flockvilleAbilityFavorites") throw new Error("blocked");
+      return original.call(this, key, value);
+    };
+  });
+  await page.goto("/?page=ability");
+  const row = page.locator("#abilityTableBody tr").first();
+  await row.locator("summary").click();
+  await row.getByRole("button", { name: /to favorites/ }).click();
+  await expect(page.getByText("Could not save ability favorites", { exact: false })).toBeVisible();
+  await expect(row.getByRole("button", { name: /to favorites/ })).toHaveAttribute("aria-pressed", "false");
+});
+
 test("ability chart searches all records, sorts, filters, and pages without losing entries", async ({ page }) => {
   await page.goto("/?page=ability");
   const rows = page.locator("#abilityTableBody tr");
@@ -44,7 +124,7 @@ test("ability chart searches all records, sorts, filters, and pages without losi
   await expect(rows.first().locator("dd").first()).toHaveText("N/A — X-Factors do not tier");
   await expect(rows.first().locator("dd").last()).toHaveText("Verified");
   await page.getByRole("navigation", { name: "Main sections" }).getByRole("link", { name: "Lottery", exact: true }).click();
-  await expect(page.locator("#setup")).toBeVisible();
+  await expect(page.locator("#draw")).toBeVisible();
   await page.getByRole("navigation", { name: "Main sections" }).getByRole("link", { name: "Ability Guide" }).click();
   await expect(page.locator("#abilityGuideHeading")).toBeFocused();
   await expect(page.getByLabel("Search abilities")).toHaveValue("Bazooka");

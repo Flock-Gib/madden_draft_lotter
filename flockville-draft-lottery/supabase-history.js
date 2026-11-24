@@ -248,7 +248,7 @@
       }, {});
     }
 
-    function saveHistory(records, { years } = {}) {
+    function saveHistory(records, { years, corrections = {} } = {}) {
       if (!session?.access_token) return Promise.reject(new Error("Sign in to Supabase before saving cloud history."));
       const wanted = years ? new Set(years.map((year) => Number(year))) : null;
       const rows = Object.values(records || {})
@@ -256,14 +256,19 @@
         .map((record) => ({ season_year: Number(record.year), record }));
       if (!rows.length) return Promise.resolve({ saved: [] });
       return enqueue(async () => {
-        const returned = await request(`/rest/v1/${TABLE}?on_conflict=season_year`, {
-          method: "POST",
-          headers: { Prefer: "resolution=merge-duplicates,return=representation" },
-          body: rows,
-        });
+        const regular = rows.filter((row) => !corrections[row.season_year]);
+        const returned = regular.length ? await request(`/rest/v1/${TABLE}?on_conflict=season_year`, {
+          method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=representation" }, body: regular,
+        }) : [];
         // A 2xx with missing or altered rows (for example RLS filtering) is not a saved record.
         const confirmed = new Map((Array.isArray(returned) ? returned : [])
           .map((row) => [Number(row?.season_year), row?.record]));
+        for (const row of rows.filter((entry) => corrections[entry.season_year])) {
+          confirmed.set(row.season_year, await request("/rest/v1/rpc/correct_flockville_history", {
+            method: "POST",
+            body: { p_year: row.season_year, p_record: row.record, p_reason: corrections[row.season_year] },
+          }));
+        }
         rows.forEach((row) => {
           if (!sameJson(confirmed.get(row.season_year), row.record)) {
             throw new Error(`Supabase did not confirm the saved ${row.season_year} lottery. Cloud storage remains unverified; retry the save.`);
@@ -273,13 +278,22 @@
       });
     }
 
-    function deleteYear(year) {
+    function deleteYear(year, { reason } = {}) {
       if (!session?.access_token) return Promise.reject(new Error("Sign in to Supabase before deleting cloud history."));
       const safeYear = Number(year);
       if (!Number.isInteger(safeYear) || safeYear < 1000 || safeYear > 9999) {
         return Promise.reject(new Error("Choose a valid season year to delete."));
       }
       return enqueue(async () => {
+        if (reason) {
+          const removed = await request("/rest/v1/rpc/correct_flockville_history", {
+            method: "POST", body: { p_year: safeYear, p_record: null, p_reason: reason },
+          });
+          if (removed !== null && Number(removed?.year) !== safeYear) {
+            throw new Error("Supabase did not confirm the deleted lottery year.");
+          }
+          return { deleted: removed ? 1 : 0 };
+        }
         const removed = await request(`/rest/v1/${TABLE}?season_year=eq.${safeYear}`, {
           method: "DELETE",
           headers: { Prefer: "return=representation" },
@@ -295,6 +309,49 @@
       });
     }
 
+    async function loadDashboard() {
+      const rows = await request("/rest/v1/flockville_dashboard?select=season_year,announcements,event_title,event_at&id=eq.1", { anonymous: true });
+      if (!Array.isArray(rows)) throw new Error("Supabase returned an invalid dashboard.");
+      return rows[0] || null;
+    }
+
+    async function saveDashboard(dashboard) {
+      if (!session?.access_token) throw new Error("Sign in before publishing league news.");
+      const rows = await request("/rest/v1/flockville_dashboard?on_conflict=id", {
+        method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+        body: { id: 1, ...dashboard },
+      });
+      if (!Array.isArray(rows) || !rows[0] || Object.entries(dashboard).some(([key, value]) =>
+        key === "event_at" && value ? Date.parse(rows[0][key]) !== Date.parse(value) : rows[0][key] !== value)) {
+        throw new Error("Supabase did not confirm the dashboard update.");
+      }
+      return rows[0];
+    }
+
+    async function loadBroadcast() {
+      const rows = await request("/rest/v1/flockville_live?select=run_id,season_year,total,status,picks,revision,updated_at&id=eq.1", { anonymous: true });
+      if (!Array.isArray(rows)) throw new Error("Supabase returned an invalid broadcast.");
+      return rows[0] || null;
+    }
+
+    async function publishBroadcast(payload) {
+      if (!session?.access_token) throw new Error("Sign in before broadcasting.");
+      const room = await request("/rest/v1/rpc/publish_flockville_live", { method: "POST", body: payload });
+      if (!room || room.run_id !== payload.p_run_id || room.season_year !== payload.p_year ||
+        room.total !== payload.p_total || room.status !== payload.p_status || !sameJson(room.picks, payload.p_picks)) {
+        throw new Error("Supabase did not confirm the broadcast update.");
+      }
+      return room;
+    }
+
+    async function loadAudit(beforeId) {
+      if (!session?.access_token) throw new Error("Sign in to read database backups.");
+      const cursor = beforeId ? `&id=lt.${encodeURIComponent(beforeId)}` : "";
+      const rows = await request(`/rest/v1/draft_lottery_audit?select=id,season_year,action,reason,before_record,after_record,created_at&order=id.desc&limit=50${cursor}`);
+      if (!Array.isArray(rows)) throw new Error("Supabase returned an invalid edit log.");
+      return rows;
+    }
+
     return {
       checkAdmin,
       deleteYear,
@@ -302,6 +359,11 @@
       isAuthenticated: () => Boolean(session?.access_token),
       isConfigured: () => Boolean(url && anonKey),
       loadHistory,
+      loadDashboard,
+      saveDashboard,
+      loadBroadcast,
+      publishBroadcast,
+      loadAudit,
       saveHistory,
       setUser: (user) => {
         if (session) saveSession({ ...session, user });

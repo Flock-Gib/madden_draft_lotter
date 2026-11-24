@@ -34,7 +34,8 @@ function app(storage = new Map(), options = {}) {
   const context = vm.createContext({
     crypto, console, setTimeout, clearTimeout,
     ...options,
-    document: { getElementById: node, querySelector: node, querySelectorAll: () => [], createElement: () => node(crypto.randomUUID()) },
+    document: { getElementById: node, querySelector: node, querySelectorAll: () => [], createElement: () => node(crypto.randomUUID()), addEventListener() {} },
+    addEventListener() {},
     lotteryHistory: history,
     lotteryOrder: require("./lottery-order.js"),
     lotteryTrades: require("./lottery-trades.js"),
@@ -61,6 +62,68 @@ function app(storage = new Map(), options = {}) {
   }));
   return { evaluate, state, node, context, storage, messages, confirmations };
 }
+
+test("ability favorites use all chart fields, persist and report storage failures", () => {
+  const a = app();
+  a.evaluate(`abilityChartEntries = [
+    {position:"QB", ability:"One", abilityType:"X-Factor", goldRequirements:"A"},
+    {position:"QB", ability:"One", abilityType:"X-Factor", goldRequirements:"B"}
+  ]`);
+  assert.notEqual(a.evaluate("abilityEntryId(abilityChartEntries[0])"), a.evaluate("abilityEntryId(abilityChartEntries[1])"));
+  a.evaluate("toggleAbilityFavorite(abilityChartEntries[0]); abilityFavorites.clear(); readAbilityFavorites()");
+  assert.equal(a.evaluate("abilityFavorites.has(abilityEntryId(abilityChartEntries[0]))"), true);
+  assert.equal(a.evaluate("abilityFavorites.has(abilityEntryId(abilityChartEntries[1]))"), false);
+  a.context.localStorage.setItem = () => { throw new Error("blocked"); };
+  a.evaluate("toggleAbilityFavorite(abilityChartEntries[1])");
+  assert.equal(a.evaluate("abilityFavorites.size"), 1);
+  assert.match(a.messages.at(-1), /Could not save ability favorites/);
+  a.context.localStorage.getItem = () => "{invalid";
+  a.evaluate("readAbilityFavorites()");
+  assert.match(a.messages.at(-1), /Could not load ability favorites/);
+});
+
+test("ability URL filters validate values and preserve unrelated parameters", () => {
+  const location = { href: "https://example.test/?page=ability&q=Bazooka&pos=QB&type=X-Factor&sort=ability&dir=desc&favorites=1&season=2026" };
+  const a = app(new Map(), { URL, location });
+  a.evaluate(`abilityChartEntries = [{position:"QB", ability:"Bazooka", abilityType:"X-Factor"}];
+    abilityChartReady = true; renderAbilityChart = () => {}; applyAbilityUrl()`);
+  assert.equal(a.node("abilitySearch").value, "Bazooka");
+  assert.equal(a.node("abilityPosition").value, "QB");
+  assert.equal(a.node("abilityType").value, "X-Factor");
+  assert.equal(a.node("abilityFavoritesOnly").checked, true);
+  assert.equal(a.evaluate("abilitySortKey"), "ability");
+  assert.equal(a.evaluate("abilitySortDirection"), "desc");
+  assert.equal(a.evaluate('abilityFilterUrl().searchParams.get("season")'), "2026");
+  location.href = "https://example.test/?page=ability&pos=bogus&type=bogus&sort=bad&dir=bad&favorites=yes";
+  a.evaluate("abilityPage = 7; applyAbilityUrl()");
+  assert.equal(a.node("abilityPosition").value, "");
+  assert.equal(a.node("abilityType").value, "");
+  assert.equal(a.node("abilityFavoritesOnly").checked, false);
+  assert.equal(a.evaluate("abilitySortKey"), "position");
+  assert.equal(a.evaluate("abilitySortDirection"), "asc");
+  assert.equal(a.evaluate("abilityPage"), 1);
+});
+
+test("ability comparisons enforce three entries, allow removal, and escape all details", () => {
+  const a = app();
+  a.evaluate(`abilityChartEntries = Array.from({length: 4}, (_, i) =>
+    ({position: "QB", ability: "Ability " + i, goldRequirements: '<img src=x onerror=alert(1)>'}));
+    renderAbilityChart = () => {}; initializeAbilityFilters()`);
+  const click = a.node("abilityTableBody").listeners.click;
+  for (let index = 0; index < 4; index++) {
+    const button = { dataset: { abilityAction: "compare", abilityIndex: String(index) } };
+    click({ target: { closest: () => button } });
+  }
+  assert.equal(a.evaluate("abilityCompare.size"), 3);
+  assert.match(a.messages.at(-1), /up to 3 abilities/);
+  a.evaluate("renderAbilityCompare()");
+  const markup = a.node("abilityCompareEntries").innerHTML;
+  assert.match(markup, /&lt;img src=x onerror=alert\(1\)&gt;/);
+  assert.doesNotMatch(markup, /<img/);
+  const remove = a.node("abilityCompareEntries").listeners.click;
+  remove({ target: { closest: () => ({ dataset: { abilityRemove: "0" } }) } });
+  assert.equal(a.evaluate("abilityCompare.size"), 2);
+});
 
 function prior(year = 2025, names = ["Team 0", "Team 1", "Team 2"]) {
   return history.createManualRecord({
@@ -1107,6 +1170,28 @@ test("cloud-history loading preserves declined conflicts and does not echo the d
   assert.deepEqual(JSON.parse(JSON.stringify(cloudWrites.at(-1))), ["2025"], "only the changed year is sent");
 });
 
+test("pending archive visibility changes do not require a finalized-result correction after reload", async () => {
+  let correctionPrompts = 0;
+  const writes = [];
+  const record = { ...prior(2026), finalized: true };
+  const cloudClient = {
+    isAuthenticated: () => true, isConfigured: () => true, userEmail: () => "admin@example.com",
+    checkAdmin: async () => true, loadHistory: async () => ({ 2026: record }),
+    saveHistory: async (_records, { years }) => { writes.push(years); return { saved: [2026] }; },
+  };
+  const a = app(new Map(), { flockvilleSupabaseHistory: { createClient: () => cloudClient } });
+  a.state.lotteryHistory = history.upsertRecord({}, { ...record, archived: true });
+  a.evaluate("pendingCloudYears.add('2026')");
+  a.context.flockvilleHub = {
+    render() {}, correctionReasons: () => ({}), confirmCorrections() {},
+    authorizeFinalized: () => { correctionPrompts++; return false; },
+  };
+  await a.evaluate("loadSupabaseHistory()");
+  assert.equal(correctionPrompts, 0);
+  assert.equal(writes.length, 1);
+  assert.equal(a.state.lotteryHistory["2026"].archived, true);
+});
+
 test("a lottery saved while signed out stays pending, shows where it is saved, and publishes after admin sign-in", async () => {
   const cloudWrites = [];
   let admin = false;
@@ -1183,14 +1268,17 @@ test("failed browser storage is never presented as a locally saved lottery", () 
 
 test("edits made while publishing remain queued and are confirmed in a subsequent write", async () => {
   let releaseFirst;
+  let markStarted;
+  const firstStarted = new Promise((resolve) => { markStarted = resolve; });
   const writes = [];
   const cloudClient = {
     isAuthenticated: () => true,
     isConfigured: () => true,
     userEmail: () => "admin@example.com",
+    loadHistory: async () => ({}),
     saveHistory: async (records, { years } = {}) => {
       writes.push(records);
-      if (writes.length === 1) await new Promise((resolve) => { releaseFirst = resolve; });
+      if (writes.length === 1) await new Promise((resolve) => { releaseFirst = resolve; markStarted(); });
       return { saved: years || Object.keys(records).map(Number), savedAt: new Date().toISOString() };
     },
   };
@@ -1199,6 +1287,7 @@ test("edits made while publishing remain queued and are confirmed in a subsequen
   a.evaluate("cloudAccessVerified = true");
   a.evaluate("persistHistory()");
   const publishing = a.evaluate("publishLocalHistory()");
+  await firstStarted;
   a.state.lotteryHistory = history.upsertRecord(a.state.lotteryHistory, prior(2026, ["New One", "New Two", "New Three"]));
   a.evaluate("persistHistory()");
   releaseFirst();
@@ -1207,6 +1296,24 @@ test("edits made while publishing remain queued and are confirmed in a subsequen
   assert.equal(writes[0]["2026"].finalOrder[0].team, "Team 0");
   assert.equal(writes[1]["2026"].finalOrder[0].team, "New One");
   assert.equal(a.evaluate("getPendingCloudYears().length"), 0);
+});
+
+test("publishing all local history cannot replace a finalized remote year after correction is cancelled", async () => {
+  let writes = 0;
+  const remote = { ...prior(2026), finalized: true };
+  const cloudClient = {
+    isAuthenticated: () => true, isConfigured: () => true, userEmail: () => "admin@example.com",
+    loadHistory: async () => ({ 2026: remote }),
+    saveHistory: async () => { writes++; return { saved: [2026] }; },
+  };
+  const a = app(new Map(), { flockvilleSupabaseHistory: { createClient: () => cloudClient } });
+  a.state.lotteryHistory = history.upsertRecord({}, prior(2026, ["Changed One", "Changed Two", "Changed Three"]));
+  a.evaluate("cloudAccessVerified = true");
+  a.context.flockvilleHub = { render() {}, correctionReasons: () => ({}), authorizeFinalized: () => false };
+  await a.evaluate("publishLocalHistory()");
+  assert.equal(writes, 0);
+  assert.match(a.node("supabaseStatus").textContent, /Publishing cancelled/);
+  assert.equal(remote.finalOrder[0].team, "Team 0");
 });
 
 test("imported results without slot metadata use standings and tie-break ordering", () => {

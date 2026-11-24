@@ -5,9 +5,11 @@
   "private": true,
   "scripts": {
     "test": "node --test flockville-draft-lottery/*.test.js",
-    "test:browser": "playwright test"
+    "test:browser": "playwright test",
+    "test:database": "node --test supabase/schema.test.js"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.6.0",
     "@playwright/test": "1.64.0",
     "three": "0.160.0"
   }
