@@ -1874,22 +1874,44 @@ function renderAuditPanel() {
     .join("");
 }
 
+function getFinalizedSeasons() {
+  const finalized = lotteryHistory.getSortedYears(state.lotteryHistory)
+    .map((year) => state.lotteryHistory[String(year)])
+    .filter((record) => record.finalized)
+    .map((record) => ({
+      year: record.year,
+      numberOne: record.finalOrder[0]?.team || "",
+      topThree: record.finalOrder.slice(0, 3).map((pick) => pick.team),
+      finalOrder: record.finalOrder,
+      seed: record.seed,
+      settings: record.settings,
+      completeness: record.completeness,
+      archived: record.archived,
+      pending: pendingCloudYears.has(String(record.year)),
+      sharedRecord: true,
+    }));
+  const finalizedYears = new Set(finalized.map((season) => season.year));
+  const legacy = state.seasonHistory.filter((season) => !finalizedYears.has(season.year));
+  return [...finalized, ...legacy].sort((a, b) => (b.year || 0) - (a.year || 0));
+}
+
 function renderSeasonHistory() {
   els.seasonHistoryList.innerHTML = "";
+  const seasons = getFinalizedSeasons();
 
-  if (!state.seasonHistory.length) {
+  if (!seasons.length) {
     els.seasonHistoryList.innerHTML = '<p class="helper-text">No finalized seasons yet.</p>';
     els.copySeasonRecapBtn.disabled = true;
     els.copySeasonHistoryDiscordBtn.disabled = true;
     return;
   }
 
-  state.seasonHistory.forEach((season, idx) => {
+  seasons.forEach((season, idx) => {
     const item = document.createElement("article");
     item.className = "history-item";
 
     const ruleVersion = state.ruleHistory.find((v) => v.id === season.ruleVersionId);
-    const ruleInfo = ruleVersion
+    const ruleInfo = season.settings ? formatRuleSettings(season.settings) : ruleVersion
       ? `Picks: ${ruleVersion.settings.lotteryPickCount} · Bottom-4: ${ruleVersion.settings.bottomFourProtection ? "ON" : "OFF"} · Top-3 CD: ${ruleVersion.settings.topThreeCooldown ? "ON" : "OFF"} · No Consec. #1: ${ruleVersion.settings.noConsecutiveNumberOne ? "ON" : "OFF"}`
       : "Rule version not recorded";
 
@@ -1902,9 +1924,10 @@ function renderSeasonHistory() {
 
     item.innerHTML = `
       <div class="history-item-head">
-        <p class="history-item-title">${season.year ? `${season.year} season · ` : ""}${escapeHtml(formatTime(season.finalizedAt))}</p>
+        <p class="history-item-title">${season.year ? `${season.year} season` : "Season with no assigned year"}${season.finalizedAt ? ` · ${escapeHtml(formatTime(season.finalizedAt))}` : ""}${season.archived ? " · Archived" : ""}</p>
         <button class="button secondary copy-season-btn" data-season-idx="${idx}">Copy Announcement</button>
       </div>
+      <p class="helper-text">${season.sharedRecord ? `${season.pending ? "Browser changes not yet confirmed in Supabase" : "Finalized saved record"}${season.completeness === "top-three" ? " · Partial top-three only" : ""}` : "Older browser-only archive"}</p>
       <p class="history-item-line"><strong>#1:</strong> ${escapeHtml(season.numberOne || "Unknown")} ${buildCpuBadge(season.finalOrder?.find((pick) => pick.pick === 1))}</p>
       <p class="history-item-line"><strong>Top 3:</strong> ${escapeHtml((season.topThree || []).join(", ") || "N/A")}</p>
       <p class="history-item-line history-rules-ref"><strong>Rules:</strong> ${escapeHtml(ruleInfo)}</p>
@@ -1962,6 +1985,7 @@ function buildHistoryDetailMarkup(record) {
   return `
     <div class="audit-summary">
       <div class="audit-row"><strong>Season:</strong> <span>${record.year}</span></div>
+      <div class="audit-row"><strong>Status:</strong> <span>${record.finalized ? "Finalized" : "Saved · not finalized"}</span></div>
       <div class="audit-row"><strong>Source:</strong> <span>${record.source === "manual" ? "Manually entered / corrected" : record.source === "dry-run" ? "Saved dry-run simulation" : "Saved draw"} · ${record.completeness === "top-three" ? "Partial top-three only" : "Complete order"}</span></div>
       <div class="audit-row"><strong>Lottery run:</strong> <span>${record.runAt ? escapeHtml(formatTime(record.runAt)) : "Unknown — not rerun"}</span></div>
       <div class="audit-row"><strong>#1 pick:</strong> <span>${escapeHtml(record.finalOrder[0]?.team || "Unknown")} ${buildCpuBadge(record.finalOrder[0])}</span></div>
@@ -2018,6 +2042,11 @@ function renderLotteryHistory() {
   els.importHistoryInput.disabled = state.isRunning;
 
   const record = state.lotteryHistory[state.selectedHistoryYear];
+  const finalizeHistory = document.getElementById("finalizeHistoryYearBtn");
+  if (finalizeHistory) {
+    finalizeHistory.disabled = !record || record.finalized || record.source === "dry-run" || state.isRunning;
+    finalizeHistory.textContent = record?.finalized ? "Year Finalized" : "Finalize Selected Year";
+  }
   if (els.archiveHistoryYearBtn) {
     els.archiveHistoryYearBtn.disabled = !record || state.isRunning;
     els.archiveHistoryYearBtn.textContent = record?.archived ? "Unarchive Year" : "Archive Year";
@@ -2034,6 +2063,7 @@ function renderLotteryHistory() {
     ? candidates.map((season, index) => `<option value="${index}">${season.year || "Unassigned year"} · ${escapeHtml(formatTime(season.finalizedAt))} · ${escapeHtml(season.numberOne)}</option>`).join("")
     : '<option value="">No older finalized orders</option>';
   document.getElementById("loadLegacySeasonBtn").disabled = !candidates.length || state.isRunning;
+  renderSeasonHistory();
   globalThis.dispatchEvent?.(new CustomEvent("hub:render"));
 }
 
@@ -2310,7 +2340,6 @@ function render() {
   renderResults();
   renderLotteryTransparency();
   renderAuditPanel();
-  renderSeasonHistory();
   renderLotteryHistory();
   renderSteps();
   renderCurrentRules();
@@ -2947,6 +2976,18 @@ function deleteSelectedHistoryYear() {
   showToast(`Deleted the saved ${year} lottery ${deleteFromCloud ? "from this browser; cloud deletion is pending" : "from this browser only"}.`);
 }
 
+function finalizeSelectedHistoryYear() {
+  if (state.isRunning || globalThis.flockvilleHub?.isCommissioner() === false) return;
+  const record = state.lotteryHistory[state.selectedHistoryYear];
+  if (!record || record.finalized || record.source === "dry-run") return;
+  const partial = record.completeness === "top-three" ? " This is a partial top-three record, not a complete draft order." : "";
+  if (!confirm(`Finalize the saved ${record.year} lottery?${partial} Future corrections or deletion will require a reason. This does not advance the current lottery year or change live results.`)) return;
+  state.lotteryHistory = lotteryHistory.upsertRecord(state.lotteryHistory, { ...record, finalized: true });
+  if (persistHistory() === false) return;
+  render();
+  showToast(`${record.year} marked finalized. Check the cloud save status for confirmation.`);
+}
+
 function resetApp() {
   if (state.isRunning) {
     showToast("Cannot reset while the lottery is running.");
@@ -3377,7 +3418,7 @@ function buildSingleSeasonDiscordText(season) {
 }
 
 async function copySingleSeasonDiscord(idx) {
-  const season = state.seasonHistory[idx];
+  const season = getFinalizedSeasons()[idx];
   if (!season) return;
   try {
     await navigator.clipboard.writeText(buildSingleSeasonDiscordText(season));
@@ -3388,9 +3429,10 @@ async function copySingleSeasonDiscord(idx) {
 }
 
 function buildSeasonHistoryDiscordText() {
-  if (!state.seasonHistory.length) return "";
+  const seasons = getFinalizedSeasons();
+  if (!seasons.length) return "";
 
-  const parts = state.seasonHistory
+  const parts = seasons
     .slice()
     .reverse()
     .map((season) => buildSingleSeasonDiscordText(season));
@@ -3399,7 +3441,7 @@ function buildSeasonHistoryDiscordText() {
 }
 
 async function copySeasonHistoryDiscord() {
-  if (!state.seasonHistory.length) return;
+  if (!getFinalizedSeasons().length) return;
   try {
     await navigator.clipboard.writeText(buildSeasonHistoryDiscordText());
     showToast("All season history copied for Discord.");
@@ -3409,8 +3451,8 @@ async function copySeasonHistoryDiscord() {
 }
 
 async function copySeasonRecap() {
-  if (!state.seasonHistory.length) return;
-  const latest = state.seasonHistory[0];
+  const latest = getFinalizedSeasons()[0];
+  if (!latest) return;
   try {
     await navigator.clipboard.writeText(buildSingleSeasonDiscordText(latest));
     showToast("Latest season recap copied for Discord.");
@@ -3972,6 +4014,7 @@ els.historyYearSelect.addEventListener("change", () => {
   renderLotteryHistory();
 });
 els.deleteHistoryYearBtn.addEventListener("click", deleteSelectedHistoryYear);
+document.getElementById("finalizeHistoryYearBtn").addEventListener("click", finalizeSelectedHistoryYear);
 els.exportHistoryBtn.addEventListener("click", exportLotteryHistory);
 els.importHistoryBtn.addEventListener("click", importLotteryHistory);
 const enhancementActions = {

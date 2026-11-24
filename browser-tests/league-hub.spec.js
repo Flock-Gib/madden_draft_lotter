@@ -93,6 +93,48 @@ test("commissioner publishes escaped dashboard content with confirmed save", asy
   await expect(page.locator("#homeStats")).toContainText("2028");
 });
 
+test("commissioner can find both season settings and finalize a saved year for other viewers", async ({ page, context }) => {
+  const server = backend({ records: { 2025: saved(2025), 2026: { ...saved(), finalized: true } } });
+  await server.install(page);
+  await page.goto("/#access_token=access&refresh_token=refresh");
+  await expect(page.locator("body")).toHaveAttribute("data-commissioner", "true");
+  await expect(page.locator("#seasonHistoryList")).toContainText("2026 season");
+  await expect(page.locator("#historyDetail")).toContainText("Finalized");
+  await page.locator("#historyYearSelect").selectOption("2025");
+  await expect(page.locator("#historyDetail")).toContainText("not finalized");
+  await expect(page.locator("#finalizeHistoryYearBtn")).toBeEnabled();
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await page.locator("#finalizeHistoryYearBtn").click();
+  expect(server.records[2025].finalized).not.toBe(true);
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.locator("#finalizeHistoryYearBtn").click();
+  await expect(page.locator("#cloudSyncState")).toContainText("Saved to Supabase and confirmed: 2025");
+  await expect(page.locator("#finalizeHistoryYearBtn")).toHaveText("Year Finalized");
+  expect(server.records[2025].finalized).toBe(true);
+  await page.getByRole("navigation").getByRole("link", { name: "Home", exact: true }).click();
+  await page.locator("#home details summary").click();
+  await page.locator("#hubSeason").fill("2028");
+  await page.locator("#hubSaveBtn").click();
+  await expect(page.locator("#hubStatus")).toContainText("confirmed");
+  await page.getByRole("link", { name: "Set lottery year" }).click();
+  await expect(page.locator("#seasonYearInput")).toBeVisible();
+  await page.locator("#seasonYearInput").fill("2029");
+  await page.locator("#seasonYearInput").press("Tab");
+  await expect(page.locator("#seasonYearInput")).toHaveValue("2029");
+  await page.getByRole("navigation").getByRole("link", { name: "Results", exact: true }).click();
+  await expect(page.locator("#finalizeSeasonBtn")).toBeVisible();
+  await expect(page.locator("#finalizeSeasonBtn")).toBeDisabled();
+  const spectator = await context.browser().newContext();
+  const viewer = await spectator.newPage();
+  await server.install(viewer);
+  await viewer.goto("/?page=history");
+  await expect(viewer.locator("#seasonHistoryList")).toContainText("2025 season");
+  await expect(viewer.locator("#seasonHistoryList")).toContainText("2026 season");
+  await expect(viewer.locator("#finalizeHistoryYearBtn")).toBeHidden();
+  await expect(viewer.locator("#seasonHistoryList .history-item")).toHaveCount(2);
+  await spectator.close();
+});
+
 test("missing upgrade and interrupted, stale or failed broadcasts have explicit states", async ({ page }) => {
   const server = backend({ missing: true });
   await server.install(page);

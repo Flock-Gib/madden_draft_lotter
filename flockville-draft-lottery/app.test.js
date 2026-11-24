@@ -63,6 +63,24 @@ function app(storage = new Map(), options = {}) {
   return { evaluate, state, node, context, storage, messages, confirmations };
 }
 
+test("finalized cloud records and legacy archives appear once and retain their real metadata", () => {
+  const a = app();
+  a.state.lotteryHistory = history.upsertRecord({}, { ...prior(2026), finalized: true, archived: true });
+  a.state.lotteryHistory = history.upsertRecord(a.state.lotteryHistory, prior(2027));
+  a.state.seasonHistory = [
+    { year: 2026, numberOne: "Old duplicate", topThree: [], finalOrder: [] },
+    { year: 2025, numberOne: "Local legacy", topThree: [], finalOrder: [] },
+    { year: null, numberOne: "Unknown year", topThree: [], finalOrder: [] },
+  ];
+  const seasons = a.evaluate("getFinalizedSeasons()");
+  assert.deepEqual(Array.from(seasons, (entry) => entry.year), [2026, 2025, null]);
+  assert.equal(seasons[0].numberOne, "Team 0");
+  assert.equal(seasons[0].archived, true);
+  assert.equal(seasons[0].finalizedAt, undefined);
+  assert.equal(seasons[1].numberOne, "Local legacy");
+  assert.match(a.evaluate("buildSeasonHistoryDiscordText()"), /Team 0/);
+});
+
 test("ability favorites use all chart fields, persist and report storage failures", () => {
   const a = app();
   a.evaluate(`abilityChartEntries = [
