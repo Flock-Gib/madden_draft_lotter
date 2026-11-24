@@ -377,13 +377,30 @@
             <span>Admin email</span>
             <input id="supabaseEmail" type="email" autocomplete="email" placeholder="league-admin@example.com" />
           </label>
+          <label id="supabasePasswordLabel">
+            <span>Admin password</span>
+            <input id="supabasePassword" type="password" autocomplete="current-password" />
+          </label>
+          <button id="supabasePasswordSignInBtn" class="button primary" type="button">Sign in</button>
           <button id="supabaseSignInBtn" class="button secondary" type="button">Email sign-in link</button>
           <button id="supabaseLoadBtn" class="button secondary" type="button" disabled>Refresh Cloud History</button>
           <button id="cloudRetryBtn" class="button secondary" type="button" hidden>Retry cloud save</button>
           <button id="supabasePublishBtn" class="button secondary" type="button" disabled>Publish Local History</button>
           <button id="supabaseSignOutBtn" class="button secondary" type="button" hidden>Sign out</button>
         </div>
+        <div id="supabasePasswordSetup" class="cloud-history-controls" hidden>
+          <label>
+            <span>New password</span>
+            <input id="supabaseNewPassword" type="password" autocomplete="new-password" />
+          </label>
+          <label>
+            <span>Confirm new password</span>
+            <input id="supabaseConfirmPassword" type="password" autocomplete="new-password" />
+          </label>
+          <button id="supabaseSetPasswordBtn" class="button secondary" type="button">Set or change password</button>
+        </div>
         <p class="helper-text">Past lotteries load from Supabase automatically for everyone. Signing in is only needed to publish, replace, or delete lotteries; follow the README Supabase setup before connecting a project.</p>
+        <p class="helper-text">First time using a password? Sign in once with an email link, then set a password below. Next time, sign in with your email and password.</p>
       </section>
       <div class="history-toolbar">
         <label class="year-field">
