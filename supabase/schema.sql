@@ -30,12 +30,49 @@ grant execute on function public.is_flockville_admin() to authenticated;
 
 revoke all on public.flockville_admins from public, anon, authenticated;
 revoke all on public.draft_lottery_history from public, anon, authenticated;
-grant select, insert, update, delete on public.draft_lottery_history to authenticated;
+-- Anyone may look up lottery history; only authorized admins may change it.
+grant select on public.draft_lottery_history to anon, authenticated;
+grant insert, update, delete on public.draft_lottery_history to authenticated;
+
+-- Reject malformed records at the database, not only in the browser.
+alter table public.draft_lottery_history
+  drop constraint if exists draft_lottery_history_record_shape;
+alter table public.draft_lottery_history
+  add constraint draft_lottery_history_record_shape check (
+    coalesce(
+      jsonb_typeof(record) = 'object'
+      and record ->> 'year' = season_year::text
+      and case
+        when jsonb_typeof(record -> 'finalOrder') = 'array'
+          then jsonb_array_length(record -> 'finalOrder') > 0
+        else false
+      end,
+      false
+    )
+  ) not valid;
+
+-- Stamp saves with the server clock instead of trusting the browser clock.
+create or replace function public.set_draft_lottery_history_updated_at()
+returns trigger
+language plpgsql
+set search_path = pg_catalog, public
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists draft_lottery_history_set_updated_at on public.draft_lottery_history;
+create trigger draft_lottery_history_set_updated_at
+  before insert or update on public.draft_lottery_history
+  for each row execute function public.set_draft_lottery_history_updated_at();
 
 drop policy if exists "League admins can read lottery history" on public.draft_lottery_history;
-create policy "League admins can read lottery history"
-  on public.draft_lottery_history for select to authenticated
-  using ((select public.is_flockville_admin()));
+drop policy if exists "Anyone can read lottery history" on public.draft_lottery_history;
+create policy "Anyone can read lottery history"
+  on public.draft_lottery_history for select to anon, authenticated
+  using (true);
 
 drop policy if exists "League admins can insert lottery history" on public.draft_lottery_history;
 create policy "League admins can insert lottery history"

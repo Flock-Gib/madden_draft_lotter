@@ -1,5 +1,6 @@
 const STORAGE_KEY = "flockvilleDraftLotteryState";
 const HISTORY_STORAGE_KEY = "flockvilleDraftLotteryHistory";
+const PENDING_CLOUD_KEY = "flockvilleCloudPendingYears";
 const STORAGE_VERSION = 3;
 const MAX_SEASON_HISTORY = 12;
 const MAX_RULE_HISTORY = 50;
@@ -158,6 +159,15 @@ let checksumWarning = "";
 let suppressCloudSync = false;
 let cloudHistoryReady = false;
 let cloudAccessVerified = false;
+let cloudLoadRun = null;
+let cloudSyncRun = null;
+let cloudSyncQueued = false;
+let cloudRetryTimer = null;
+let cloudRetryAttempts = 0;
+let cloudSaveNote = { kind: "idle" };
+let pendingCloudYears = new Set();
+let lastPersistedHistory = {};
+let localHistorySaveError = false;
 let activePresentation = null;
 let activeLotteryStage3d = null;
 [
@@ -493,21 +503,147 @@ function persistState() {
   }
 }
 
+function loadPendingCloudYears() {
+  try {
+    const years = JSON.parse(localStorage.getItem(PENDING_CLOUD_KEY) || "[]");
+    return new Set((Array.isArray(years) ? years : []).map(String)
+      .filter((year) => lotteryHistory.sanitizeYear(year) !== null));
+  } catch {
+    showToast("Could not restore pending Supabase saves. Refresh cloud history and review local conflicts before publishing.");
+    return new Set();
+  }
+}
+
+function savePendingCloudYears() {
+  try {
+    localStorage.setItem(PENDING_CLOUD_KEY, JSON.stringify([...pendingCloudYears].sort()));
+  } catch {
+    showToast("Could not retain pending Supabase saves after reload. Export History as a backup before leaving this page.");
+  }
+}
+
 function persistHistory() {
   try {
     localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(lotteryHistory.buildHistoryExport(state.lotteryHistory)));
+    localHistorySaveError = false;
   } catch {
+    localHistorySaveError = true;
     showToast("Could not save lottery history to this browser. Use Export History to back it up.");
   }
+  Object.keys(lastPersistedHistory).filter((year) => !state.lotteryHistory[year])
+    .forEach((year) => pendingCloudYears.delete(year));
+  // Only years that changed are queued, so a stale copy never overwrites newer cloud years.
+  lotteryHistory.changedYears(lastPersistedHistory, state.lotteryHistory).forEach((year) => {
+    if (suppressCloudSync) pendingCloudYears.delete(year);
+    else pendingCloudYears.add(year);
+  });
+  lastPersistedHistory = state.lotteryHistory;
+  savePendingCloudYears();
   updateSupabaseButtons();
-  if (!suppressCloudSync && cloudHistoryReady && supabaseHistoryClient?.isAuthenticated()) {
-    supabaseHistoryClient.saveHistory(state.lotteryHistory)
-      .then(() => setSupabaseStatus(`Connected as ${supabaseHistoryClient.userEmail()}. Local and cloud lottery history are synchronized.`))
-      .catch((error) => {
-        setSupabaseStatus(`Local history is saved, but cloud sync failed: ${error.message}`);
-        showToast(`Local history is saved, but Supabase sync failed: ${error.message}`);
-      });
+  if (suppressCloudSync) renderCloudSyncState();
+  else syncPendingCloudYears();
+}
+
+function canPublishToCloud() {
+  return Boolean(supabaseHistoryClient?.isConfigured() && supabaseHistoryClient.isAuthenticated() &&
+    cloudAccessVerified && cloudHistoryReady);
+}
+
+function getPendingCloudYears() {
+  return [...pendingCloudYears].filter((year) => state.lotteryHistory[year]).sort();
+}
+
+function scheduleCloudRetry() {
+  clearTimeout(cloudRetryTimer);
+  cloudRetryTimer = null;
+  if (cloudRetryAttempts >= 3) return;
+  cloudRetryAttempts += 1;
+  cloudRetryTimer = setTimeout(() => {
+    cloudRetryTimer = null;
+    syncPendingCloudYears();
+  }, 15000 * cloudRetryAttempts);
+}
+
+function syncPendingCloudYears() {
+  if (cloudSyncRun) {
+    cloudSyncQueued = true;
+    return cloudSyncRun;
   }
+  if (!getPendingCloudYears().length || !canPublishToCloud()) {
+    renderCloudSyncState();
+    return Promise.resolve();
+  }
+  clearTimeout(cloudRetryTimer);
+  cloudRetryTimer = null;
+  cloudSyncRun = runCloudSync().finally(() => {
+    cloudSyncRun = null;
+    renderCloudSyncState();
+  });
+  return cloudSyncRun;
+}
+
+async function runCloudSync() {
+  try {
+    do {
+      cloudSyncQueued = false;
+      const years = getPendingCloudYears();
+      if (!years.length) break;
+      const sent = Object.fromEntries(years.map((year) => [year, state.lotteryHistory[year]]));
+      cloudSaveNote = { kind: "saving", years };
+      renderCloudSyncState();
+      const { saved, savedAt } = await supabaseHistoryClient.saveHistory(sent, { years });
+      years.forEach((year) => {
+        if (state.lotteryHistory[year] === sent[year]) pendingCloudYears.delete(year);
+      });
+      savePendingCloudYears();
+      cloudRetryAttempts = 0;
+      cloudSaveNote = { kind: "saved", years: saved.map(String), at: savedAt };
+    } while (cloudSyncQueued && canPublishToCloud());
+    setSupabaseStatus(`Connected as ${supabaseHistoryClient.userEmail()}. Local and cloud lottery history are synchronized.`);
+  } catch (error) {
+    cloudSaveNote = { kind: "error", message: error.message };
+    setSupabaseStatus(`${localHistorySaveError ? "Browser storage also failed" : "Local history is saved"}, but cloud sync failed: ${error.message}`);
+    showToast(`${localHistorySaveError ? "Browser storage failed" : "Saved in this browser"}, but Supabase did not confirm: ${error.message}`);
+    scheduleCloudRetry();
+  }
+}
+
+function describeCloudSync() {
+  const pending = getPendingCloudYears();
+  const years = (list) => list.join(", ");
+  if (!supabaseHistoryClient?.isConfigured()) {
+    return pending.length || cloudSaveNote.kind !== "idle"
+      ? "Saved in this browser only. The Supabase archive is not configured." : "";
+  }
+  if (cloudSaveNote.kind === "saving") return `Saving ${years(cloudSaveNote.years)} to Supabase…`;
+  if (cloudSaveNote.kind === "error") {
+    return `Saved in this browser, but Supabase did not confirm ${pending.length ? years(pending) : "the save"}: ${cloudSaveNote.message} ${cloudRetryTimer ? "It will retry automatically." : "Automatic retries have stopped."} Use Retry cloud save on the History page to try now.`;
+  }
+  if (pending.length) {
+    const reason = !supabaseHistoryClient.isAuthenticated()
+      ? "Sign in as a league admin on the History page to publish."
+      : !cloudAccessVerified ? "This account is not authorized to publish lottery history."
+        : "Waiting for the cloud archive to finish loading or for conflicts to be resolved.";
+    return `${years(pending)} saved in this browser but not yet in Supabase. ${reason}`;
+  }
+  if (cloudSaveNote.kind === "saved") {
+    return `Saved to Supabase and confirmed: ${years(cloudSaveNote.years)} at ${new Date(cloudSaveNote.at).toLocaleTimeString()}.`;
+  }
+  return "";
+}
+
+function renderCloudSyncState() {
+  const text = localHistorySaveError
+    ? `Browser storage failed: this history is not backed up locally. Export History before leaving. ${describeCloudSync().replace(/Saved in this browser|saved in this browser/gi, "Kept in memory only")}`
+    : describeCloudSync();
+  ["lotterySaveStatus", "cloudSyncState"].forEach((id) => {
+    const element = document.getElementById(id);
+    if (!element) return;
+    element.textContent = text;
+    element.hidden = !text;
+  });
+  const retry = document.getElementById("cloudRetryBtn");
+  if (retry) retry.hidden = !(supabaseHistoryClient?.isAuthenticated() && getPendingCloudYears().length);
 }
 
 function setSupabaseStatus(message) {
@@ -520,6 +656,7 @@ function updateSupabaseButtons() {
   const signedIn = supabaseHistoryClient.isAuthenticated();
   const publish = document.getElementById("supabasePublishBtn");
   if (publish) publish.disabled = !signedIn || !cloudAccessVerified || !Object.keys(state.lotteryHistory).length;
+  renderCloudSyncState();
 }
 
 function renderSupabaseControls() {
@@ -535,15 +672,15 @@ function renderSupabaseControls() {
   const signOut = document.getElementById("supabaseSignOutBtn");
   if (signIn) signIn.disabled = !configured || signedIn;
   if (email) email.disabled = !configured || signedIn;
-  if (load) load.disabled = !configured || !signedIn;
+  if (load) load.disabled = !configured;
   updateSupabaseButtons();
   if (signOut) signOut.hidden = !signedIn;
   if (!configured) {
     setSupabaseStatus("Cloud history is optional and not configured. Add your Supabase project URL and publishable anon key in supabase-config.js; local history continues to work.");
   } else if (signedIn) {
-    setSupabaseStatus(`Signed in as ${supabaseHistoryClient.userEmail() || "league account"}. Checking access to the private league archive…`);
+    setSupabaseStatus(`Signed in as ${supabaseHistoryClient.userEmail() || "league account"}. Checking the archive and your publishing access…`);
   } else {
-    setSupabaseStatus("Supabase is configured. Request a league-admin sign-in link to access the private lottery archive.");
+    setSupabaseStatus("Loading the public lottery archive from Supabase…");
   }
 }
 
@@ -558,10 +695,12 @@ async function initializeSupabaseHistory() {
       supabaseHistoryClient.setUser?.(result.user);
     }
     renderSupabaseControls();
-    if (result.user) await loadSupabaseHistory();
+    if (result.configured) await loadSupabaseHistory();
   } catch (error) {
     renderSupabaseControls();
     setSupabaseStatus(`Supabase could not initialize: ${error.message} Local lottery history is still available.`);
+    // A broken sign-in link must not hide the public archive.
+    if (supabaseHistoryClient.isConfigured()) await loadSupabaseHistory();
   }
 }
 
@@ -577,58 +716,98 @@ async function requestSupabaseSignIn() {
   }
 }
 
-async function loadSupabaseHistory() {
-  if (!supabaseHistoryClient?.isConfigured() || !supabaseHistoryClient.isAuthenticated()) return;
+function loadSupabaseHistory(options = {}) {
+  if (!supabaseHistoryClient?.isConfigured()) return Promise.resolve();
+  cloudLoadRun ||= runSupabaseHistoryLoad(options).finally(() => { cloudLoadRun = null; });
+  return cloudLoadRun;
+}
+
+function describeCloudLoad({ yearCount, merge, retainedConflicts, signedIn, admin, adminError }) {
+  const details = [
+    merge.added ? `loaded ${merge.added} new year${merge.added === 1 ? "" : "s"}` : "",
+    merge.replaced ? `replaced ${merge.replaced} local conflict${merge.replaced === 1 ? "" : "s"} with cloud versions` : "",
+    retainedConflicts ? `kept ${retainedConflicts} local conflict${retainedConflicts === 1 ? "" : "s"}` : "",
+  ].filter(Boolean);
+  const base = !yearCount
+    ? `The Supabase archive is connected but has no saved lottery years yet.`
+    : details.length ? `${details.join("; ")}.`
+      : `All ${yearCount} cloud lottery year${yearCount === 1 ? " is" : "s are"} already present in this browser.`;
+  if (!signedIn) return `${base} Anyone can read this archive; sign in as a league admin to publish new lotteries.`;
+  if (adminError) return `${base} Could not verify publishing access: ${adminError}`;
+  if (!admin) return `${base} Signed in as ${supabaseHistoryClient.userEmail() || "this account"}, which is not authorized to publish lottery history. Ask the project owner to add it to flockville_admins; the archive stays readable.`;
+  return base;
+}
+
+async function runSupabaseHistoryLoad({ manual = false } = {}) {
+  const signedIn = supabaseHistoryClient.isAuthenticated();
   cloudAccessVerified = false;
   cloudHistoryReady = false;
   updateSupabaseButtons();
   const button = document.getElementById("supabaseLoadBtn");
   if (button) button.disabled = true;
-  setSupabaseStatus("Loading saved lottery years from Supabase…");
+  setSupabaseStatus(signedIn ? "Loading saved lottery years from Supabase…" : "Loading the public lottery archive from Supabase…");
   try {
     const remote = lotteryHistory.sanitizeHistory(await supabaseHistoryClient.loadHistory());
-    cloudAccessVerified = true;
-    updateSupabaseButtons();
-    const incoming = Object.fromEntries(Object.entries(remote).filter(([year, record]) => {
+    let admin = false;
+    let adminError = "";
+    if (signedIn) {
+      try {
+        admin = await supabaseHistoryClient.checkAdmin();
+      } catch (error) {
+        adminError = error.message;
+      }
+    }
+    cloudAccessVerified = admin;
+    // Years already queued locally are newer than the archive for an admin, so they win and are published next.
+    const incoming = {};
+    const confirmed = [];
+    Object.entries(remote).forEach(([year, record]) => {
       const local = lotteryHistory.sanitizeRecord(state.lotteryHistory[year]);
-      return !local || JSON.stringify(local) !== JSON.stringify(record);
-    }));
-    const years = Object.keys(remote);
-    if (!years.length) {
-      cloudHistoryReady = true;
-      setSupabaseStatus("The Supabase archive is connected but has no saved lottery years yet.");
-      return;
+      if (local && !lotteryHistory.changedYears({ [year]: local }, { [year]: record }).length) {
+        if (pendingCloudYears.has(year)) confirmed.push(year);
+        pendingCloudYears.delete(year);
+      } else if (!(admin && local && pendingCloudYears.has(year))) {
+        incoming[year] = record;
+      }
+    });
+    if (confirmed.length) {
+      cloudSaveNote = { kind: "saved", years: confirmed, at: new Date().toISOString() };
+      cloudRetryAttempts = 0;
+      clearTimeout(cloudRetryTimer);
+      cloudRetryTimer = null;
     }
-    if (!Object.keys(incoming).length) {
-      cloudHistoryReady = true;
-      setSupabaseStatus(`All ${years.length} cloud lottery year${years.length === 1 ? " is" : "s are"} already present in this browser.`);
-      return;
+    if (admin) {
+      Object.keys(state.lotteryHistory).filter((year) => !remote[year]).forEach((year) => pendingCloudYears.add(year));
     }
+    savePendingCloudYears();
+
     const conflicts = Object.keys(incoming).filter((year) => state.lotteryHistory[year]).length;
-    let mergeResult;
-    suppressCloudSync = true;
-    try {
-      mergeResult = mergeImportedHistory(incoming);
-    } finally {
-      suppressCloudSync = false;
+    let merge = { added: 0, replaced: 0 };
+    if (Object.keys(incoming).length) {
+      suppressCloudSync = true;
+      try {
+        merge = mergeImportedHistory(incoming, "league archive");
+      } finally {
+        suppressCloudSync = false;
+      }
+      render();
     }
-    render();
-    const retainedConflicts = conflicts - mergeResult.replaced;
-    cloudHistoryReady = retainedConflicts === 0;
-    const details = [
-      mergeResult.added ? `loaded ${mergeResult.added} new year${mergeResult.added === 1 ? "" : "s"}` : "",
-      mergeResult.replaced ? `replaced ${mergeResult.replaced} local conflict${mergeResult.replaced === 1 ? "" : "s"} with cloud versions` : "",
-      retainedConflicts ? `kept ${retainedConflicts} local conflict${retainedConflicts === 1 ? "" : "s"}` : "",
-    ].filter(Boolean);
-    setSupabaseStatus(details.length ? `${details.join("; ")}.` : "No cloud years were merged.");
+    const retainedConflicts = conflicts - merge.replaced;
+    cloudHistoryReady = admin && retainedConflicts === 0;
+    setSupabaseStatus(describeCloudLoad({
+      yearCount: Object.keys(remote).length, merge, retainedConflicts, signedIn, admin, adminError,
+    }));
+    updateSupabaseButtons();
+    if (state.teams.length && (merge.added || merge.replaced)) announceCrossCheck("Cloud history updated");
+    if (cloudHistoryReady) await syncPendingCloudYears();
   } catch (error) {
     cloudAccessVerified = false;
     cloudHistoryReady = false;
     updateSupabaseButtons();
     setSupabaseStatus(`Could not load cloud history: ${error.message}`);
-    showToast(error.message);
+    if (manual) showToast(error.message);
   } finally {
-    if (button) button.disabled = !supabaseHistoryClient.isConfigured() || !supabaseHistoryClient.isAuthenticated();
+    if (button) button.disabled = !supabaseHistoryClient.isConfigured();
   }
 }
 
@@ -641,10 +820,17 @@ async function publishLocalHistory() {
   if (button) button.disabled = true;
   setSupabaseStatus(`Publishing ${count} local lottery year${count === 1 ? "" : "s"} to Supabase…`);
   try {
-    await supabaseHistoryClient.saveHistory(state.lotteryHistory);
+    const sent = { ...state.lotteryHistory };
+    const { saved, savedAt } = await supabaseHistoryClient.saveHistory(sent);
     cloudHistoryReady = true;
+    saved.forEach((year) => {
+      if (state.lotteryHistory[year] === sent[year]) pendingCloudYears.delete(String(year));
+    });
+    savePendingCloudYears();
+    cloudSaveNote = { kind: "saved", years: saved.map(String).sort(), at: savedAt };
     setSupabaseStatus(`Published ${count} local lottery year${count === 1 ? "" : "s"} to Supabase.`);
     showToast("Lottery history published to Supabase.");
+    await syncPendingCloudYears();
   } catch (error) {
     setSupabaseStatus(`Local history remains saved, but cloud publishing failed: ${error.message}`);
     showToast(error.message);
@@ -1630,6 +1816,44 @@ function protectionReady(year = state.seasonYear) {
       state.manualProtectionYear === year || hasProtectionOverride("previousNumberOne"));
 }
 
+function getTeamCrossCheck() {
+  const overrides = state.protectionOverrides?.year === state.seasonYear ? {
+    previousTopThree: state.protectionOverrides.previousTopThree,
+    previousNumberOne: state.protectionOverrides.previousNumberOne,
+  } : {};
+  return lotteryHistory.crossCheckTeams(state.teams, state.lotteryHistory, state.seasonYear, {
+    useManual: state.manualProtectionYear === state.seasonYear,
+    overrides,
+    enforce: {
+      topThreeCooldown: els.topThreeCooldownToggle.checked,
+      noConsecutiveNumberOne: els.consecutiveOneToggle.checked,
+    },
+  });
+}
+
+function renderTeamCrossCheck() {
+  const panel = document.getElementById("teamCrossCheck");
+  if (!panel) return;
+  const report = getTeamCrossCheck();
+  panel.hidden = !report.checked;
+  if (!report.checked) return;
+  const order = { warning: 0, info: 1 };
+  const issues = [...report.issues].sort((a, b) => order[a.level] - order[b.level]);
+  const shown = issues.slice(0, 8);
+  const label = { warning: "Review", info: "Note" };
+  panel.classList.toggle("needs-review", !report.ok);
+  panel.innerHTML = `<strong>${report.ok ? "✓" : "⚠"} ${escapeHtml(lotteryHistory.summarizeCrossCheck(report))}</strong>
+    <span class="helper-text">Checks the previous top three, previous #1, and CPU / locked boxes against saved ${report.priorYear} history.</span>
+    ${shown.length ? `<ul>${shown.map((issue) => `<li><span class="cross-check-tag">${label[issue.level]}</span> ${escapeHtml(issue.message)}</li>`).join("")}</ul>` : ""}
+    ${issues.length > shown.length ? `<details><summary>Show ${issues.length - shown.length} more cross-check notes</summary><ul>${issues.slice(shown.length).map((issue) => `<li><span class="cross-check-tag">${label[issue.level]}</span> ${escapeHtml(issue.message)}</li>`).join("")}</ul></details>` : ""}`;
+}
+
+function announceCrossCheck(source) {
+  const report = getTeamCrossCheck();
+  if (!report.checked) return;
+  showToast(`${source}: ${lotteryHistory.summarizeCrossCheck(report)}`);
+}
+
 function renderProtection() {
   const { automatic, priorYear, record } = getProtection();
   const manual = state.manualProtectionYear === state.seasonYear;
@@ -1818,6 +2042,7 @@ function render() {
   renderOwnerOptions();
   renderTeams();
   renderProtection();
+  renderTeamCrossCheck();
   renderResults();
   renderLotteryTransparency();
   renderAuditPanel();
@@ -2362,13 +2587,14 @@ async function exportLotteryHistory() {
   showToast("Lottery history exported.");
 }
 
-function mergeImportedHistory(incoming) {
+function mergeImportedHistory(incoming, source = "import") {
   const preview = lotteryHistory.mergeHistory(state.lotteryHistory, incoming, { replaceConflicts: false });
   let replaceConflicts = false;
   if (preview.conflicts.length) {
-    replaceConflicts = confirm(
-      `The import contains lotteries for years already saved (${preview.conflicts.sort((a, b) => a - b).join(", ")}). Replace them with the imported versions? Choose Cancel to keep your saved versions.`
-    );
+    const years = preview.conflicts.sort((a, b) => a - b).join(", ");
+    replaceConflicts = confirm(source === "league archive"
+      ? `The league archive has different lotteries than this browser for ${years}. Replace the browser copies with the archive versions? Choose Cancel to keep this browser's versions.`
+      : `The import contains lotteries for years already saved (${years}). Replace them with the imported versions? Choose Cancel to keep your saved versions.`);
   }
 
   const { merged, added, conflicts } = lotteryHistory.mergeHistory(state.lotteryHistory, incoming, { replaceConflicts });
@@ -2424,7 +2650,9 @@ function deleteSelectedHistoryYear() {
   }
   if (deleteFromCloud) {
     supabaseHistoryClient.deleteYear(year)
-      .then(() => setSupabaseStatus(`Year ${year} was deleted from this browser and Supabase.`))
+      .then(({ deleted }) => setSupabaseStatus(deleted
+        ? `Year ${year} was deleted from this browser and Supabase.`
+        : `Year ${year} was deleted from this browser. Supabase had no saved copy to remove.`))
       .catch((error) => {
         setSupabaseStatus(`Year ${year} was deleted locally but could not be deleted from Supabase: ${error.message}`);
         showToast(error.message);
@@ -2500,7 +2728,7 @@ function loadDemo() {
   state.results = [];
   state.lastRunMeta = null;
   render();
-  showToast(`Loaded ${state.teams.length}-team demo.`);
+  showToast(`Loaded ${state.teams.length}-team demo. ${lotteryHistory.summarizeCrossCheck(getTeamCrossCheck())}`);
 }
 
 function loadAllNflTeams() {
@@ -2535,7 +2763,7 @@ function loadAllNflTeams() {
   if (added === 0) {
     showToast("All 32 NFL teams are already loaded.");
   } else {
-    showToast(`Added ${added} NFL teams without duplicates.`);
+    showToast(`Added ${added} NFL teams without duplicates. ${lotteryHistory.summarizeCrossCheck(getTeamCrossCheck())}`);
   }
 }
 
@@ -2644,7 +2872,7 @@ async function importJson() {
 
     render();
     if (checksumWarning) els.statusText.textContent = checksumWarning;
-    showToast("Import complete.");
+    showToast(`Import complete. ${lotteryHistory.summarizeCrossCheck(getTeamCrossCheck())}`.trim());
   } catch {
     showToast("Invalid JSON import file. Please choose a valid export.");
   } finally {
@@ -3530,7 +3758,15 @@ els.seasonYearInput.addEventListener("change", () => {
 });
 
 document.getElementById("supabaseSignInBtn").addEventListener("click", requestSupabaseSignIn);
-document.getElementById("supabaseLoadBtn").addEventListener("click", loadSupabaseHistory);
+document.getElementById("supabaseLoadBtn").addEventListener("click", () => loadSupabaseHistory({ manual: true }));
+document.getElementById("cloudRetryBtn")?.addEventListener("click", () => {
+  cloudRetryAttempts = 0;
+  return supabaseHistoryClient?.isAuthenticated() ? loadSupabaseHistory({ manual: true }) : undefined;
+});
+globalThis.addEventListener?.("online", () => {
+  cloudRetryAttempts = 0;
+  syncPendingCloudYears();
+});
 document.getElementById("supabasePublishBtn").addEventListener("click", publishLocalHistory);
 document.getElementById("supabaseSignOutBtn").addEventListener("click", signOutSupabase);
 
@@ -3560,6 +3796,8 @@ els.seedInput.addEventListener("change", () => {
 
 restoreStateFromStorage();
 restoreHistoryFromStorage();
+lastPersistedHistory = state.lotteryHistory;
+pendingCloudYears = loadPendingCloudYears();
 if (!state.ruleHistory.length) snapshotRuleVersion("Initial rules.");
 els.seedEnabledToggle.checked = state.seedEnabled;
 els.seedInput.value = state.seedText;

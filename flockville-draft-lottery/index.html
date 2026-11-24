@@ -152,6 +152,7 @@
       <p id="protectionSource" class="helper-text" aria-live="polite"></p>
       <label class="check-label"><input id="manualProtectionToggle" type="checkbox" /> Use manual protection checkboxes for this season (override history)</label>
       <p class="helper-text">Protections follow the original lottery team, not its pick owner. Without the exact previous year, review the warning and explicitly enable manual flags before drawing.</p>
+      <div id="teamCrossCheck" class="cross-check" role="status" aria-live="polite" hidden></div>
 
       <div class="table-wrap setup-table">
         <table>
@@ -289,6 +290,7 @@
         </div>
         <p class="helper-text">The machine shows decorative balls, not weighted odds. CPU-locked teams receive no lottery balls and stay in their pre-lottery slots. Results are calculated before the reveal, and speed, skip, logos or 3D fallback never change the order. Reduced motion uses a still reveal.</p>
         <p id="statusText" class="status-text" role="status" aria-live="polite" aria-atomic="true">Add teams, confirm the settings, and start the draw.</p>
+        <p id="lotterySaveStatus" class="status-text save-status" role="status" aria-live="polite" aria-atomic="true" hidden></p>
       </div>
     </section>
 
@@ -360,7 +362,7 @@
         <div>
           <p class="eyebrow">STEP 5 · HISTORY</p>
           <h2>Past Lotteries</h2>
-          <p class="helper-text">Every completed lottery is saved locally and can be synchronized to the configured Flockville Supabase archive. Export files remain available as backups. To recover a photo: enter last year's actual order below → save/confirm → select next year → review automatic flags → draw.</p>
+          <p class="helper-text">Every completed lottery is saved locally and, when a league admin is signed in, to the Flockville Supabase archive. Anyone can look up the archive without signing in. Export files remain available as backups. To recover a photo: enter last year's actual order below → save/confirm → select next year → review automatic flags → draw.</p>
         </div>
       </div>
       <section class="cloud-history-panel" aria-labelledby="cloudHistoryHeading">
@@ -368,6 +370,7 @@
           <p class="eyebrow">CLOUD ARCHIVE</p>
           <h3 id="cloudHistoryHeading" class="subheading">Supabase History</h3>
           <p id="supabaseStatus" class="helper-text" role="status" aria-live="polite">Checking Supabase configuration…</p>
+          <p id="cloudSyncState" class="helper-text save-status" role="status" aria-live="polite" hidden></p>
         </div>
         <div class="cloud-history-controls">
           <label>
@@ -375,11 +378,12 @@
             <input id="supabaseEmail" type="email" autocomplete="email" placeholder="league-admin@example.com" />
           </label>
           <button id="supabaseSignInBtn" class="button secondary" type="button">Email sign-in link</button>
-          <button id="supabaseLoadBtn" class="button secondary" type="button" disabled>Load Cloud History</button>
+          <button id="supabaseLoadBtn" class="button secondary" type="button" disabled>Refresh Cloud History</button>
+          <button id="cloudRetryBtn" class="button secondary" type="button" hidden>Retry cloud save</button>
           <button id="supabasePublishBtn" class="button secondary" type="button" disabled>Publish Local History</button>
           <button id="supabaseSignOutBtn" class="button secondary" type="button" hidden>Sign out</button>
         </div>
-        <p class="helper-text">History remains saved in this browser. Sign in to sync with the private league archive; follow the README Supabase setup before connecting a project.</p>
+        <p class="helper-text">Past lotteries load from Supabase automatically for everyone. Signing in is only needed to publish, replace, or delete lotteries; follow the README Supabase setup before connecting a project.</p>
       </section>
       <div class="history-toolbar">
         <label class="year-field">
