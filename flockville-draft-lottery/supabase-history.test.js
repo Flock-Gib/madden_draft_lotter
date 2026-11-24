@@ -22,6 +22,72 @@ function makeClient(fetchImpl, storage = new Map(), config = {
   return createClient(config, { fetchImpl, storage: sessionStorage });
 }
 
+test("finalized corrections use the correction RPC and verify its returned record", async () => {
+  const calls = [];
+  let mismatch = false;
+  const client = makeClient(async (url, options) => {
+    if (url.endsWith("/auth/v1/user")) return response(200, { id: "admin" });
+    const body = JSON.parse(options.body);
+    calls.push({ url, body });
+    if (url.endsWith("/correct_flockville_history")) {
+      return response(200, mismatch ? {} : body.p_record || { year: body.p_year });
+    }
+    return response(200, body);
+  });
+  await client.initialize({ hash: "#access_token=access", pathname: "/", search: "" }, () => {});
+  const records = { 2025: { year: 2025, finalized: false }, 2026: { year: 2026, finalized: true } };
+  await client.saveHistory(records, { corrections: { 2026: "Fix original pick owner" } });
+  assert.deepEqual(calls[0].body, [{ season_year: 2025, record: records[2025] }]);
+  assert.deepEqual(calls[1].body, { p_year: 2026, p_record: records[2026], p_reason: "Fix original pick owner" });
+  assert.deepEqual(await client.deleteYear(2026, { reason: "Remove duplicate lottery" }), { deleted: 1 });
+  assert.deepEqual(calls.at(-1).body, { p_year: 2026, p_record: null, p_reason: "Remove duplicate lottery" });
+  mismatch = true;
+  await assert.rejects(client.saveHistory(records, { years: [2026], corrections: { 2026: "Fix original pick owner" } }), /did not confirm/);
+  await assert.rejects(client.deleteYear(2026, { reason: "Remove duplicate lottery" }), /did not confirm/);
+});
+
+test("dashboard and broadcast reads are public; publishing is authenticated and confirmed", async () => {
+  const calls = [];
+  const dashboard = { season_year: 2027, announcements: "Draft night", event_title: "Lottery", event_at: "2027-01-02T18:00:00.000Z" };
+  let badEcho = false;
+  let badBroadcast = false;
+  const client = makeClient(async (url, options) => {
+    calls.push({ url, options });
+    if (url.endsWith("/auth/v1/user")) return response(200, { id: "admin" });
+    if (url.includes("/flockville_dashboard")) return response(200,
+      badEcho ? [] : [{ ...dashboard, event_at: "2027-01-02T18:00:00+00:00" }]);
+    if (url.includes("/flockville_live?")) return response(200, [{ picks: [] }]);
+    if (url.includes("/draft_lottery_audit")) return response(200, []);
+    const payload = JSON.parse(options.body);
+    if (badBroadcast) return response(200, {});
+    return response(200, { run_id: payload.p_run_id, season_year: payload.p_year,
+      total: payload.p_total, status: payload.p_status, picks: payload.p_picks });
+  });
+  await client.initialize({ hash: "", pathname: "/", search: "" });
+  await client.loadDashboard();
+  await client.loadBroadcast();
+  assert.ok(calls.every(({ options }) => options.headers.Authorization === undefined));
+  await assert.rejects(client.saveDashboard(dashboard), /Sign in/);
+  await assert.rejects(client.publishBroadcast({}), /Sign in/);
+  await assert.rejects(client.loadAudit(), /Sign in/);
+  await client.initialize({ hash: "#access_token=access", pathname: "/", search: "" }, () => {});
+  assert.equal((await client.saveDashboard(dashboard)).season_year, 2027);
+  assert.equal(calls.at(-1).options.headers.Authorization, "Bearer access");
+  assert.deepEqual(JSON.parse(calls.at(-1).options.body), { id: 1, ...dashboard });
+  badEcho = true;
+  await assert.rejects(client.saveDashboard(dashboard), /did not confirm/);
+  const payload = { p_run_id: "run", p_year: 2027, p_total: 8, p_status: "live", p_picks: [], p_start: true };
+  await client.publishBroadcast(payload);
+  assert.deepEqual(JSON.parse(calls.at(-1).options.body), payload);
+  badBroadcast = true;
+  await assert.rejects(client.publishBroadcast(payload), /did not confirm/);
+  await client.loadAudit(80);
+  assert.match(calls.at(-1).url, /limit=50&id=lt.80$/);
+  await client.loadBroadcast();
+  assert.equal(calls.at(-1).options.headers.Authorization, undefined);
+  assert.ok(!calls.at(-1).url.includes("publisher_id"));
+});
+
 test("magic-link callback stores the session, cleans the URL, and loads year-keyed history", async () => {
   const requests = [];
   const storage = new Map();

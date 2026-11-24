@@ -11,6 +11,7 @@ const PNG_1X1 = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUl
 test.use({ launchOptions: { args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] } });
 
 test.beforeEach(async ({ page }, testInfo) => {
+  await page.route("**/supabase-config.js", (route) => route.fulfill({ contentType: "application/javascript", body: "window.FLOCKVILLE_SUPABASE_CONFIG = {};" }));
   test.skip(testInfo.project.name !== "desktop", "Software WebGL scene coverage runs once.");
   test.setTimeout(120_000);
   page.on("dialog", (dialog) => dialog.accept());
@@ -27,7 +28,7 @@ test.beforeEach(async ({ page }, testInfo) => {
     contentType: "application/javascript",
     headers: { "access-control-allow-origin": "*" },
   }));
-  await page.goto("/");
+  await page.goto("/?page=lottery");
   const webgl = await page.evaluate(() => Boolean(document.createElement("canvas").getContext("webgl2")));
   test.skip(!webgl, "WebGL2 is unavailable in this browser environment.");
   await page.locator("#loadDemoBtn").click();

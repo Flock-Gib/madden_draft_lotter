@@ -1,6 +1,7 @@
 const { test, expect } = require("@playwright/test");
 
 test.beforeEach(async ({ page }) => {
+  await page.route("**/supabase-config.js", (route) => route.fulfill({ contentType: "application/javascript", body: "window.FLOCKVILLE_SUPABASE_CONFIG = {};" }));
   page.on("dialog", (dialog) => dialog.accept());
   await page.addInitScript(() => {
     window.historyWrites = 0;
@@ -10,7 +11,7 @@ test.beforeEach(async ({ page }) => {
       return setItem.call(this, key, value);
     };
   });
-  await page.goto("/");
+  await page.goto("/?page=lottery");
   await page.locator("#loadDemoBtn").click();
   await page.locator("#manualProtectionToggle").check();
   await page.locator("#seedEnabledToggle").check();

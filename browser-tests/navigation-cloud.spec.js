@@ -44,6 +44,19 @@ async function completeDemoDraw(page) {
   await expect(page.locator("#statusText")).toContainText("complete");
 }
 
+async function seedPendingDraw(page) {
+  const record = history.createManualRecord({
+    year: 2026, completeness: "complete",
+    finalOrder: ["Bears", "Lions", "Ravens", "Jets", "Giants", "Bills", "Browns", "Texans"]
+      .map((team, index) => ({ pick: index + 1, team, owner: team })),
+  });
+  await page.evaluate((saved) => {
+    localStorage.setItem("flockvilleDraftLotteryHistory", JSON.stringify(saved));
+    localStorage.setItem("flockvilleCloudPendingYears", JSON.stringify(["2026"]));
+  }, history.buildHistoryExport({ 2026: record }));
+  await page.goto("/?page=lottery");
+}
+
 test("admin sets a password after one email-link login, then signs in with it and publishes pending history", async ({ page }) => {
   const user = { id: "admin", email: "admin@example.com" };
   let write = null;
@@ -83,7 +96,7 @@ test("admin sets a password after one email-link login, then signs in with it an
   await expect(page.locator("#supabaseNewPassword")).toHaveValue("");
   await page.locator("#supabaseSignOutBtn").click();
   await expect(page.locator("#supabasePasswordSetup")).toBeHidden();
-  await completeDemoDraw(page);
+  await seedPendingDraw(page);
   await expect(page.locator("#lotterySaveStatus")).toContainText("not yet in Supabase");
   await page.getByRole("navigation", { name: "Main sections" }).getByRole("link", { name: "History" }).click();
   await page.locator("#supabaseEmail").fill(user.email);
@@ -146,6 +159,10 @@ test("public visitors can look up Supabase history and loaded teams are cross-ch
   await expect(page.locator("#supabaseStatus")).toContainText("Anyone can read this archive");
   expect(cloud.authRequests).toEqual([]);
   await page.goto("/?page=lottery");
+  await expect(page.locator("#setup")).toBeHidden();
+  await page.goto("/#access_token=example&refresh_token=example");
+  await expect(page.locator("body")).toHaveAttribute("data-commissioner", "true");
+  await page.goto("/?page=lottery");
   await page.locator("#seasonYearInput").fill("2026");
   await page.locator("#seasonYearInput").press("Tab");
   await page.locator("#loadAllNflBtn").click();
@@ -155,9 +172,10 @@ test("public visitors can look up Supabase history and loaded teams are cross-ch
   expect(cloud.writes).toEqual([]);
 });
 
-test("a completed signed-out draw stays pending across reload and publishes after admin sign-in", async ({ page }) => {
+test("previous browser-only history stays pending across reload and publishes after admin sign-in", async ({ page }) => {
   const cloud = await mockArchive(page);
-  await completeDemoDraw(page);
+  await page.goto("/");
+  await seedPendingDraw(page);
   await expect(page.locator("#lotterySaveStatus")).toContainText("2026 saved in this browser but not yet in Supabase");
   expect(cloud.writes).toHaveLength(0);
   await page.reload();
@@ -180,8 +198,9 @@ test("imported flags are checked against original-team history without changing 
       .map((team, index) => ({ pick: index + 1, team, owner: "Buffalo Bills" })),
   });
   await mockArchive(page, { records: { 2025: prior } });
+  await page.goto("/#access_token=example&refresh_token=example");
+  await expect(page.locator("body")).toHaveAttribute("data-commissioner", "true");
   await page.goto("/?page=results");
-  await expect(page.locator("#supabaseStatus")).toContainText("Anyone can read this archive");
   await page.locator("#importJsonInput").setInputFiles({
     name: "teams.json", mimeType: "application/json",
     buffer: Buffer.from(JSON.stringify({
@@ -233,7 +252,8 @@ test("a failed completed-draw save stays pending and Retry cloud save confirms t
 });
 
 test("page navigation has distinct URLs, preserves lottery setup, and supports old links", async ({ page }) => {
-  await page.goto("/");
+  await page.route("**/supabase-config.js", (route) => route.fulfill({ contentType: "application/javascript", body: "window.FLOCKVILLE_SUPABASE_CONFIG = {};" }));
+  await page.goto("/?page=lottery");
   await expect(page.locator("#setup")).toBeVisible();
   await expect(page.locator("#ability-guide")).toBeHidden();
   await page.locator("#loadDemoBtn").click();
@@ -307,23 +327,14 @@ test("unauthorized cloud accounts see an actionable error and can retry", async 
   await expect(page.locator("#supabaseLoadBtn")).toBeEnabled();
   await expect(page.locator("#supabasePublishBtn")).toBeDisabled();
   await expect(page.locator("#supabaseSignOutBtn")).toBeVisible();
-  page.on("dialog", (dialog) => dialog.accept());
-  await page.locator("#newHistoryBtn").click();
-  await page.locator("#manualHistoryYear").fill("2025");
-  await page.locator("#manualHistoryCompleteness").selectOption("top-three");
-  for (const [index, name] of ["Raiders", "Giants", "Titans"].entries()) {
-    const row = page.locator("#manualHistoryRows > div").nth(index);
-    await row.locator(".history-pick").fill(String(index + 1));
-    await row.locator(".history-team").fill(name);
-  }
-  await page.locator("#saveManualHistoryBtn").click();
-  await page.locator("#deleteHistoryYearBtn").click();
-  await expect(page.locator("#supabaseStatus")).toContainText("deleted from this browser only");
+  await expect(page.locator("#newHistoryBtn")).toBeHidden();
+  await expect(page.locator("#deleteHistoryYearBtn")).toBeHidden();
   expect(cloudDeletes).toBe(0);
 });
 
 test("switching pages during a reveal preserves the draw and saved results", async ({ page }) => {
-  await page.goto("/");
+  await page.route("**/supabase-config.js", (route) => route.fulfill({ contentType: "application/javascript", body: "window.FLOCKVILLE_SUPABASE_CONFIG = {};" }));
+  await page.goto("/?page=lottery");
   await page.locator("#loadDemoBtn").click();
   await page.locator("#manualProtectionToggle").check();
   await page.locator("#setupLockBtn").click();

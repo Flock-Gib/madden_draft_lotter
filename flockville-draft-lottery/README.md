@@ -1,6 +1,6 @@
 # FLOCKVILLE HUB
 
-The Flockville Madden League hub currently includes a static web application for running the draft lottery.
+The Flockville Madden League hub includes a public league dashboard, ability guide, draft lottery and searchable Supabase archive.
 
 ## Features
 
@@ -17,7 +17,7 @@ The Flockville Madden League hub currently includes a static web application for
 - Trade list builder with Discord-ready copy export
 - **Required trades** — after each draw the app lists ordered pick swaps needed to turn the pre-lottery ownership order into the lottery ownership order; one click adds them to the trade list
 - **Past Lotteries** — every completed lottery is saved by season year (date run, final order, odds, required trades) with view/delete per year and history JSON export/import
-- **Guided layout** — header navigation (Lottery / Results / History / How it works), a step-by-step flow tracker, a per-team odds table, and result cards showing pre-lottery slot and movement
+- **Guided layout** — separate Home, Ability Guide, Lottery, Results, History, Watch live and How it works pages, a step-by-step flow tracker, a per-team odds table, and result cards showing pre-lottery slot and movement
 - **Enhanced trade cards** — each card shows from/to teams, assets, notes, timestamp, and manual/auto-generated badge
 - **Lottery history** — full draw order per finalized season, linked to the rule version in effect
 - **Season Discord export** — copy any individual season as a Discord announcement; copy all seasons at once
@@ -93,6 +93,38 @@ Example:
 - Baltimore receives Pick #1.
 
 ## Using the App
+
+### Home, members and commissioners
+
+The root URL opens **Home**. Commissioners can publish the current season, announcements (one per line), and the next event. These updates are stored in Supabase and visible to everyone. Event times are entered and displayed in each viewer's local time zone.
+
+On a configured site, visitors and signed-in non-admins have a **member view**: public news, abilities, results, history and live broadcasts. Setup, draws, imports, corrections, trade administration and finalization are visible only after Supabase verifies commissioner access. Use **Commissioner sign-in** or **History → Supabase History**; existing email/password and email-link access still work. UI visibility is not the security boundary: database row-level security and admin-checked RPCs enforce write permissions. With Supabase unconfigured, existing local commissioner tools remain available.
+
+### Ability favorites, comparisons and sharing
+
+Use **Favorite** on any entry, then **Favorites only** to show your shortlist. Favorites are saved only in this browser, not in your account; a shared favorites-only URL uses the recipient's own favorites. Select **Compare** on up to three abilities to see all nine chart fields side by side, including complete requirements and notes. Comparison selection lasts until reload or removal.
+
+**Share these filters** copies a URL containing search, position, type, sorting and favorites-only mode. If clipboard access is unavailable, copy the displayed URL manually. Filters survive page navigation and browser back/forward. Clearing filters preserves favorites.
+
+### Shared draft-night broadcast
+
+An authenticated, verified commissioner can check **Broadcast this draw live** before starting. Share `?page=live` with spectators or use **Fullscreen broadcast** for screen sharing. Public viewers refresh about every two seconds while that page is visible; no account or Supabase Realtime setup is needed.
+
+Only revealed pick numbers, original teams, owners and CPU-lock labels are transmitted. Future picks, seeds and the computed order are never included in the live payload. One broadcast can be active at a time; the database enforces publisher/run ownership and prevents rewriting revealed picks. A live room without updates for 90 seconds is labeled disconnected and can be superseded by a new draw. A completed broadcast remains viewable until the next broadcast.
+
+Keep the commissioner tab open during a draw. Closing/reloading it does not resume a broadcast or save a partial lottery. Spectators see interrupted/stale status rather than a completed result. If an update fails after the broadcast starts, a visible warning appears and the local lottery continues saving independently. A failed initial broadcast prevents that draw from starting; resolve it or uncheck broadcasting. Broadcasts are a presentation feed, not the permanent history archive.
+
+### Search and compare past seasons
+
+In **History**, search by **original team**, not traded owner, and optionally limit the year range. Results include archived seasons, pick owner, CPU status, pre-lottery slot and movement when recorded; missing legacy metadata is labeled unknown. Results paginate at 50 without dropping matches. Select another comparison season to compare the currently viewed year's original teams side by side; teams absent from either season are identified explicitly.
+
+### Automatic database backups and finalized corrections
+
+After applying the updated SQL, every actual history insert, update or deletion stores an automatic server-side before/after snapshot in a private, client-append-only edit log. Existing records receive a baseline snapshot when upgrading. These revisions stay in Supabase until the project owner explicitly manages retention; browser reset or history deletion does not delete them. No-op upserts do not create duplicate revisions. Export downloaded revisions separately: same-database snapshots are not disaster-recovery or point-in-time database backups.
+
+**Finalize Season** marks the stored record finalized. Replacing, rerunning or deleting a finalized record requires confirmation and an explicit correction reason of 8–500 characters. Direct database writes through the app cannot bypass that requirement. Archive visibility changes remain permitted and logged without a correction reason.
+
+Under **History → Database backups and edit log**, load revisions and download a checksummed history export. A revision downloads its **before** record when available (the recoverable prior state), otherwise its inserted/baseline record. Restore it using **Import History** or **Recover Saved History**, review conflicts, confirm replacement, and supply a correction reason if the currently stored year is finalized. Restoration is a new audited edit, never a rewrite of the log. Audit snapshots and reasons are commissioner-only; never put secrets in correction reasons.
 
 ### Recover an actual past draft from a photo
 
@@ -185,7 +217,7 @@ All JSON exports include a **SHA-256 checksum** generated with Web Crypto, which
 
 The website can run without a database. To share lottery history across devices, create a Supabase project and:
 
-1. Open the project's SQL Editor and run [`../supabase/schema.sql`](../supabase/schema.sql). **Existing projects must re-run this updated file** to enable public lookup, validate new writes, and stamp saves with the database clock. It preserves existing records and admin accounts. Row-level security allows public reads but restricts all writes to authorized league admins.
+1. Open the project's SQL Editor and run [`../supabase/schema.sql`](../supabase/schema.sql). **Existing projects must re-run the entire updated file** before deploying these features. It preserves existing records and admin accounts, adds automatic revision snapshots and finalized corrections, and creates the public dashboard and live-room tables/RPC. Row-level security allows public history/dashboard/broadcast reads but restricts mutations and audit-log reads to authorized league admins. No new service key, Realtime publication or scheduled job is required.
 2. Invite the administrator from **Authentication → Users**. In the SQL file, replace the example email and run the commented insert statement as the project owner to authorize that account.
 3. Add the deployed app URL to Supabase **Authentication → URL Configuration → Redirect URLs**.
 4. Put the project URL and its **publishable** (or legacy anon) key in `supabase-config.js`. These browser values are public; **never** put a `service_role` or secret key in this file or the website.
@@ -304,10 +336,13 @@ The app has no build step. From the **repository root**, install the test depend
 npm ci
 npx playwright install chromium
 npm test
+npm run test:database
 npm run test:browser
 ```
 
 On Linux, use `npx playwright install --with-deps chromium` if browser system dependencies are missing. Python 3 is required for the browser suite's configured static web server. Playwright runs desktop (1280px) and mobile (390px) projects. The Node baseline can also run directly with `node --test flockville-draft-lottery/*.test.js`. Verify the UI manually using the following checklist:
+
+The database regression uses an isolated, in-memory PostgreSQL-compatible PGlite instance with stubbed Supabase roles/Auth. It checks repeat-safe migrations, preserved data/admins, public versus private access, baseline/before/after snapshots, immutable finalized results, correction reasons and live-room integrity. It never connects to or modifies the production Supabase project. For reliable software-rendered WebGL coverage on resource-limited hosts, run `npx playwright test browser-tests/stage-3d.spec.js --project=desktop --workers=1` separately from the other browser files.
 
 The layout suite additionally checks 1920px, 768px, and 375px widths and attaches full-page screenshots to its test results for visual review. It checks panel/card overflow, touch-target sizing, centered dialogs, keyboard focus, Chromium accessibility-tree control names, reduced motion, and representative text/control contrast. These checks supplement, rather than replace, manual screen-reader and visual review. Run just these checks with `npx playwright test browser-tests/layout.spec.js`.
 

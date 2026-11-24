@@ -155,6 +155,16 @@ let abilitySortKey = "position";
 let abilitySortDirection = "asc";
 let abilityPage = 1;
 const ABILITY_PAGE_SIZE = 25;
+const ABILITY_FIELDS = [
+  ["Position", "position"], ["Type", "abilityType"], ["Ability", "ability"],
+  ["Archetype / basis", "unlockBasis"], ["Required rating", "requiredRating"],
+  ["Ability slot", "abilitySlot"], ["Silver", "silverRequirements"],
+  ["Gold", "goldRequirements"], ["Chart notes", "verificationStatus"],
+];
+const ABILITY_FAVORITES_KEY = "flockvilleAbilityFavorites";
+let abilityFavorites = new Set();
+let abilityCompare = new Set();
+let abilityChartReady = false;
 let checksumWarning = "";
 let suppressCloudSync = false;
 let cloudHistoryReady = false;
@@ -523,6 +533,11 @@ function savePendingCloudYears() {
 }
 
 function persistHistory() {
+  if (!suppressCloudSync && globalThis.flockvilleHub?.authorizeChanges(lastPersistedHistory, state.lotteryHistory) === false) {
+    state.lotteryHistory = lastPersistedHistory;
+    renderLotteryHistory();
+    return false;
+  }
   try {
     localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(lotteryHistory.buildHistoryExport(state.lotteryHistory)));
     localHistorySaveError = false;
@@ -591,11 +606,14 @@ async function runCloudSync() {
       const sent = Object.fromEntries(years.map((year) => [year, state.lotteryHistory[year]]));
       cloudSaveNote = { kind: "saving", years };
       renderCloudSyncState();
-      const { saved, savedAt } = await supabaseHistoryClient.saveHistory(sent, { years });
+      const { saved, savedAt } = await supabaseHistoryClient.saveHistory(sent, {
+        years, corrections: globalThis.flockvilleHub?.correctionReasons(),
+      });
       years.forEach((year) => {
         if (state.lotteryHistory[year] === sent[year]) pendingCloudYears.delete(year);
       });
       savePendingCloudYears();
+      globalThis.flockvilleHub?.confirmCorrections(years.filter((year) => !pendingCloudYears.has(year)));
       cloudRetryAttempts = 0;
       cloudSaveNote = { kind: "saved", years: saved.map(String), at: savedAt };
     } while (cloudSyncQueued && canPublishToCloud());
@@ -657,6 +675,7 @@ function updateSupabaseButtons() {
   const publish = document.getElementById("supabasePublishBtn");
   if (publish) publish.disabled = !signedIn || !cloudAccessVerified || !Object.keys(state.lotteryHistory).length;
   renderCloudSyncState();
+  globalThis.flockvilleHub?.render();
 }
 
 function renderSupabaseControls() {
@@ -815,16 +834,23 @@ async function runSupabaseHistoryLoad({ manual = false } = {}) {
     // Years already queued locally are newer than the archive for an admin, so they win and are published next.
     const incoming = {};
     const confirmed = [];
+    let protectedConflicts = 0;
     Object.entries(remote).forEach(([year, record]) => {
       const local = lotteryHistory.sanitizeRecord(state.lotteryHistory[year]);
       if (local && !lotteryHistory.changedYears({ [year]: local }, { [year]: record }).length) {
         if (pendingCloudYears.has(year)) confirmed.push(year);
         pendingCloudYears.delete(year);
+      } else if (admin && local && pendingCloudYears.has(year) && record.finalized &&
+        lotteryHistory.changedYears({ [year]: { ...local, archived: false } },
+          { [year]: { ...record, archived: false } }).length &&
+        globalThis.flockvilleHub?.authorizeFinalized(year, "Replacing the finalized cloud record", record) === false) {
+        protectedConflicts += 1;
       } else if (!(admin && local && pendingCloudYears.has(year))) {
         incoming[year] = record;
       }
     });
     if (confirmed.length) {
+      globalThis.flockvilleHub?.confirmCorrections(confirmed);
       cloudSaveNote = { kind: "saved", years: confirmed, at: new Date().toISOString() };
       cloudRetryAttempts = 0;
       clearTimeout(cloudRetryTimer);
@@ -846,7 +872,7 @@ async function runSupabaseHistoryLoad({ manual = false } = {}) {
       }
       render();
     }
-    const retainedConflicts = conflicts - merge.replaced;
+    const retainedConflicts = conflicts - merge.replaced + protectedConflicts;
     cloudHistoryReady = admin && retainedConflicts === 0;
     setSupabaseStatus(describeCloudLoad({
       yearCount: Object.keys(remote).length, merge, retainedConflicts, signedIn, admin, adminError,
@@ -875,12 +901,26 @@ async function publishLocalHistory() {
   setSupabaseStatus(`Publishing ${count} local lottery year${count === 1 ? "" : "s"} to Supabase…`);
   try {
     const sent = { ...state.lotteryHistory };
-    const { saved, savedAt } = await supabaseHistoryClient.saveHistory(sent);
+    const remote = await supabaseHistoryClient.loadHistory();
+    for (const [year, value] of Object.entries(remote)) {
+      const record = lotteryHistory.sanitizeRecord(value);
+      if (record?.finalized && sent[year] && !globalThis.flockvilleHub?.correctionReasons()[year] &&
+        lotteryHistory.changedYears({ [year]: { ...value, archived: false } },
+          { [year]: { ...sent[year], archived: false } }).length &&
+        globalThis.flockvilleHub?.authorizeFinalized(year, "Replacing the finalized cloud record", record) === false) {
+        setSupabaseStatus(`Publishing cancelled. The finalized ${year} cloud record was not replaced.`);
+        return;
+      }
+    }
+    const { saved, savedAt } = await supabaseHistoryClient.saveHistory(sent, {
+      corrections: globalThis.flockvilleHub?.correctionReasons(),
+    });
     cloudHistoryReady = true;
     saved.forEach((year) => {
       if (state.lotteryHistory[year] === sent[year]) pendingCloudYears.delete(String(year));
     });
     savePendingCloudYears();
+    globalThis.flockvilleHub?.confirmCorrections(saved.filter((year) => !pendingCloudYears.has(String(year))));
     cloudSaveNote = { kind: "saved", years: saved.map(String).sort(), at: savedAt };
     setSupabaseStatus(`Published ${count} local lottery year${count === 1 ? "" : "s"} to Supabase.`);
     showToast("Lottery history published to Supabase.");
@@ -1330,16 +1370,104 @@ function compareAbilityValues(a, b, key) {
   });
 }
 
+function abilityEntryId(entry) {
+  return JSON.stringify(ABILITY_FIELDS.map(([, key]) => String(entry[key] || "")));
+}
+
+function readAbilityFavorites() {
+  try {
+    const stored = globalThis.localStorage.getItem(ABILITY_FAVORITES_KEY);
+    const parsed = stored === null ? [] : JSON.parse(stored);
+    if (!Array.isArray(parsed) || parsed.some((value) => typeof value !== "string")) throw new Error("Invalid favorites");
+    abilityFavorites = new Set(parsed);
+  } catch {
+    abilityFavorites = new Set();
+    showToast("Could not load ability favorites from browser storage.");
+  }
+}
+
+function toggleAbilityFavorite(entry) {
+  const id = abilityEntryId(entry);
+  const updated = new Set(abilityFavorites);
+  if (updated.has(id)) updated.delete(id);
+  else updated.add(id);
+  try {
+    globalThis.localStorage.setItem(ABILITY_FAVORITES_KEY, JSON.stringify([...updated]));
+    abilityFavorites = updated;
+  } catch {
+    showToast("Could not save ability favorites to browser storage.");
+  }
+}
+
+function applyAbilityUrl() {
+  if (!abilityChartReady) return;
+  const shareUrl = document.getElementById("abilityShareUrl");
+  const shareLabel = document.getElementById("abilityShareUrlLabel");
+  if (shareUrl) shareUrl.hidden = true;
+  if (shareLabel) shareLabel.hidden = true;
+  const params = new URL(globalThis.location.href).searchParams;
+  const search = document.getElementById("abilitySearch");
+  const position = document.getElementById("abilityPosition");
+  const type = document.getElementById("abilityType");
+  const favorites = document.getElementById("abilityFavoritesOnly");
+  search.value = params.get("q") || "";
+  const positionValue = params.get("pos") || "";
+  const typeValue = params.get("type") || "";
+  position.value = abilityChartEntries.some((entry) => entry.position === positionValue) ? positionValue : "";
+  type.value = abilityChartEntries.some((entry) => entry.abilityType === typeValue) ? typeValue : "";
+  const sort = params.get("sort");
+  abilitySortKey = ABILITY_FIELDS.some(([, key]) => key === sort) ? sort : "position";
+  abilitySortDirection = params.get("dir") === "desc" ? "desc" : "asc";
+  if (favorites) favorites.checked = params.get("favorites") === "1";
+  abilityPage = 1;
+  renderAbilityChart();
+}
+
+function abilityFilterUrl() {
+  const url = new URL(globalThis.location.href);
+  url.searchParams.set("page", "ability");
+  const values = {
+    q: document.getElementById("abilitySearch").value,
+    pos: document.getElementById("abilityPosition").value,
+    type: document.getElementById("abilityType").value,
+    sort: abilitySortKey === "position" ? "" : abilitySortKey,
+    dir: abilitySortDirection === "asc" ? "" : abilitySortDirection,
+    favorites: document.getElementById("abilityFavoritesOnly")?.checked ? "1" : "",
+  };
+  Object.entries(values).forEach(([key, value]) => {
+    if (value) url.searchParams.set(key, value);
+    else url.searchParams.delete(key);
+  });
+  return url;
+}
+
+function renderAbilityCompare() {
+  const panel = document.getElementById("abilityComparePanel");
+  const container = document.getElementById("abilityCompareEntries");
+  if (!panel || !container) return;
+  const entries = abilityChartEntries.map((entry, index) => ({ entry, index }))
+    .filter(({ entry }) => abilityCompare.has(abilityEntryId(entry)));
+  panel.hidden = !entries.length;
+  container.innerHTML = entries.map(({ entry, index }) => `<article class="ability-compare-entry">
+    <h3>${escapeHtml(entry.ability)} (${escapeHtml(entry.position)})</h3>
+    <dl>${ABILITY_FIELDS.map(([label, key]) => `<div><dt>${label}</dt><dd>${escapeHtml(entry[key] || "Not specified in chart")}</dd></div>`).join("")}</dl>
+    <button type="button" class="button secondary" data-ability-remove="${index}" aria-label="Remove ${escapeHtml(entry.ability)} (${escapeHtml(entry.position)}) from comparison">Remove</button>
+  </article>`).join("");
+}
+
 function renderAbilityChart() {
   const body = document.getElementById("abilityTableBody");
   if (!body) return;
   const query = normalizeName(document.getElementById("abilitySearch")?.value).toLowerCase();
   const position = document.getElementById("abilityPosition")?.value || "";
   const abilityType = document.getElementById("abilityType")?.value || "";
+  const favoritesOnly = document.getElementById("abilityFavoritesOnly")?.checked;
+  const openRows = new Set([...body.querySelectorAll("details[open]")].map((details) => details.dataset.abilityIndex));
   const filtered = abilityChartEntries
     .map((entry, index) => ({ entry, index }))
     .filter(({ entry }) => (!position || entry.position === position) &&
       (!abilityType || entry.abilityType === abilityType) &&
+      (!favoritesOnly || abilityFavorites.has(abilityEntryId(entry))) &&
       (!query || Object.values(entry).some((value) => String(value).toLowerCase().includes(query))))
     .sort((a, b) => compareAbilityValues(a.entry, b.entry, abilitySortKey) * (abilitySortDirection === "asc" ? 1 : -1) ||
       (abilitySortKey === "position" ? compareAbilityValues(a.entry, b.entry, "ability") : 0) ||
@@ -1353,13 +1481,17 @@ function renderAbilityChart() {
   abilityPage = Math.min(abilityPage, pageCount);
   const start = (abilityPage - 1) * ABILITY_PAGE_SIZE;
   body.innerHTML = filtered.length
-    ? filtered.slice(start, start + ABILITY_PAGE_SIZE).map(({ entry }) => `<tr role="row">${columns.map((key, index) => {
+    ? filtered.slice(start, start + ABILITY_PAGE_SIZE).map(({ entry, index: entryIndex }) => `<tr role="row">${columns.map((key, index) => {
       const value = String(entry[key] || "—");
       return `<td role="cell" data-label="${labels[index]}">${escapeHtml(value)}</td>`;
-    }).join("")}<td role="cell" class="ability-details-cell"><details>
+    }).join("")}<td role="cell" class="ability-details-cell"><details data-ability-index="${entryIndex}"${openRows.has(String(entryIndex)) ? " open" : ""}>
       <summary>Full requirements<span class="sr-only"> for ${escapeHtml(entry.ability)} (${escapeHtml(entry.position)})</span></summary>
       <dl>${[["Silver", "silverRequirements"], ["Gold", "goldRequirements"], ["Chart notes", "verificationStatus"]]
         .map(([label, key]) => `<div><dt>${label}</dt><dd>${escapeHtml(entry[key] || "Not specified in chart")}</dd></div>`).join("")}</dl>
+      <div class="ability-entry-actions">
+        <button type="button" class="button secondary" data-ability-action="favorite" data-ability-index="${entryIndex}" aria-pressed="${abilityFavorites.has(abilityEntryId(entry))}" aria-label="${abilityFavorites.has(abilityEntryId(entry)) ? "Remove" : "Add"} ${escapeHtml(entry.ability)} (${escapeHtml(entry.position)}) ${abilityFavorites.has(abilityEntryId(entry)) ? "from" : "to"} favorites">${abilityFavorites.has(abilityEntryId(entry)) ? "Favorited" : "Favorite"}</button>
+        <button type="button" class="button secondary" data-ability-action="compare" data-ability-index="${entryIndex}" aria-pressed="${abilityCompare.has(abilityEntryId(entry))}" aria-label="${abilityCompare.has(abilityEntryId(entry)) ? "Remove" : "Add"} ${escapeHtml(entry.ability)} (${escapeHtml(entry.position)}) ${abilityCompare.has(abilityEntryId(entry)) ? "from" : "to"} comparison">${abilityCompare.has(abilityEntryId(entry)) ? "Remove comparison" : "Compare"}</button>
+      </div>
     </details></td></tr>`).join("")
     : '<tr><td colspan="7" class="helper-text ability-empty">No abilities match. Try another search or clear the filters.</td></tr>';
   document.getElementById("abilityCount").textContent =
@@ -1383,6 +1515,7 @@ function renderAbilityChart() {
     const button = header.querySelector(".ability-sort");
     if (button) button.setAttribute("aria-label", `${button.textContent.trim()}, sort ${active && abilitySortDirection === "asc" ? "descending" : "ascending"}`);
   });
+  renderAbilityCompare();
 }
 
 async function initializeAbilityChart() {
@@ -1430,7 +1563,9 @@ async function initializeAbilityChart() {
       type.appendChild(option);
     });
     document.querySelector(".ability-count-badge").textContent = `${abilityChartEntries.length} chart entries`;
-    renderAbilityChart();
+    readAbilityFavorites();
+    abilityChartReady = true;
+    applyAbilityUrl();
   } catch (error) {
     body.innerHTML = '<tr><td colspan="7" class="helper-text ability-empty">The ability chart could not be loaded. Refresh the page to try again.</td></tr>';
     document.getElementById("abilityCount").textContent = `Unable to load chart: ${error.message}`;
@@ -1440,11 +1575,78 @@ async function initializeAbilityChart() {
 function initializeAbilityFilters() {
   const resetPage = () => {
     abilityPage = 1;
+    const shareUrl = document.getElementById("abilityShareUrl");
+    const shareLabel = document.getElementById("abilityShareUrlLabel");
+    if (shareUrl) shareUrl.hidden = true;
+    if (shareLabel) shareLabel.hidden = true;
     renderAbilityChart();
+    if (abilityChartReady) globalThis.history.replaceState(globalThis.history.state, "", abilityFilterUrl());
   };
   document.getElementById("abilitySearch")?.addEventListener("input", resetPage);
   document.getElementById("abilityPosition")?.addEventListener("change", resetPage);
   document.getElementById("abilityType")?.addEventListener("change", resetPage);
+  document.getElementById("abilityFavoritesOnly")?.addEventListener("change", resetPage);
+  globalThis.addEventListener("popstate", applyAbilityUrl);
+  globalThis.addEventListener("hub:navigate", applyAbilityUrl);
+  document.addEventListener("hub:navigate", applyAbilityUrl);
+  document.getElementById("abilityTableBody")?.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-ability-action]");
+    if (!button) return;
+    const index = Number(button.dataset.abilityIndex);
+    const entry = abilityChartEntries[index];
+    if (!entry) return;
+    const id = abilityEntryId(entry);
+    if (button.dataset.abilityAction === "favorite") {
+      toggleAbilityFavorite(entry);
+    } else if (button.dataset.abilityAction === "compare") {
+      if (abilityCompare.has(id)) abilityCompare.delete(id);
+      else if (abilityCompare.size < 3) abilityCompare.add(id);
+      else {
+        showToast("Compare up to 3 abilities. Remove one before adding another.");
+        return;
+      }
+    } else return;
+    renderAbilityChart();
+    const updatedButton = document.querySelector(`#abilityTableBody button[data-ability-action="${button.dataset.abilityAction}"][data-ability-index="${index}"]`);
+    if (updatedButton) updatedButton.focus();
+    else document.getElementById("abilityFavoritesOnly")?.focus();
+  });
+  document.getElementById("abilityCompareEntries")?.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-ability-remove]");
+    if (!button) return;
+    const entry = abilityChartEntries[Number(button.dataset.abilityRemove)];
+    if (!entry) return;
+    abilityCompare.delete(abilityEntryId(entry));
+    renderAbilityChart();
+    if (abilityCompare.size) document.getElementById("abilityClearCompareBtn")?.focus();
+  });
+  document.getElementById("abilityClearCompareBtn")?.addEventListener("click", () => {
+    abilityCompare.clear();
+    renderAbilityChart();
+    document.getElementById("abilityShareBtn")?.focus();
+  });
+  document.getElementById("abilityShareBtn")?.addEventListener("click", async () => {
+    const url = abilityFilterUrl();
+    url.hash = "";
+    ["access_token", "refresh_token", "token", "code", "password"].forEach((key) => url.searchParams.delete(key));
+    const input = document.getElementById("abilityShareUrl");
+    const label = document.getElementById("abilityShareUrlLabel");
+    if (input) input.value = url.href;
+    try {
+      await globalThis.navigator.clipboard.writeText(url.href);
+      if (input) input.hidden = true;
+      if (label) label.hidden = true;
+      showToast("Ability guide link copied.");
+    } catch {
+      if (label) label.hidden = false;
+      if (input) {
+        input.hidden = false;
+        input.focus();
+        input.select();
+      }
+      showToast("Clipboard unavailable. Copy the ability guide link below.");
+    }
+  });
   document.getElementById("abilityPositionNav")?.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-position]");
     if (!button) return;
@@ -1475,6 +1677,8 @@ function initializeAbilityFilters() {
     document.getElementById("abilitySearch").value = "";
     document.getElementById("abilityPosition").value = "";
     document.getElementById("abilityType").value = "";
+    const favorites = document.getElementById("abilityFavoritesOnly");
+    if (favorites) favorites.checked = false;
     resetPage();
   });
   document.querySelectorAll(".ability-table th[data-sort]").forEach((header) => {
@@ -1830,6 +2034,7 @@ function renderLotteryHistory() {
     ? candidates.map((season, index) => `<option value="${index}">${season.year || "Unassigned year"} · ${escapeHtml(formatTime(season.finalizedAt))} · ${escapeHtml(season.numberOne)}</option>`).join("")
     : '<option value="">No older finalized orders</option>';
   document.getElementById("loadLegacySeasonBtn").disabled = !candidates.length || state.isRunning;
+  globalThis.dispatchEvent?.(new CustomEvent("hub:render"));
 }
 
 function sanitizeProtectionOverrides(value) {
@@ -1975,9 +2180,10 @@ function saveManualHistory() {
     }, existing);
     const replacing = Boolean(state.lotteryHistory[String(record.year)]);
     if (!confirm(`${replacing ? "Replace the existing" : "Save the actual"} ${record.year} ${record.completeness === "top-three" ? "partial top-three" : "complete"} order? Check it against your source. Other years and live results are unchanged.`)) return;
+    if (globalThis.flockvilleHub?.authorizeFinalized(record.year, "Replacing the saved order") === false) return;
     state.lotteryHistory = lotteryHistory.upsertRecord(state.lotteryHistory, record);
     state.selectedHistoryYear = String(record.year);
-    persistHistory();
+    if (persistHistory() === false) return;
     state.editingHistoryRecord = record;
     message.textContent = `Saved ${record.year} as manually entered history. Export History for a backup.`;
     render();
@@ -2337,7 +2543,7 @@ function buildHistoryRecord(results, runContext) {
 function saveLotteryToHistory(results, runContext) {
   state.lotteryHistory = lotteryHistory.upsertRecord(state.lotteryHistory, buildHistoryRecord(results, runContext));
   state.selectedHistoryYear = String(runContext.year);
-  persistHistory();
+  if (persistHistory() === false) throw new Error("The finalized history correction was cancelled. No replacement was saved.");
 }
 
 function skipLotteryAnimation() {
@@ -2413,6 +2619,9 @@ async function animateLottery(results, runContext) {
   try {
     presentation.motion?.addEventListener("change", motionChanged);
     render();
+    if (document.getElementById("broadcastEnabled")?.checked) {
+      await globalThis.flockvilleHub?.startBroadcast(runContext.year, results.length);
+    }
     els.stageProgress.max = results.length;
     els.stageProgress.value = 0;
     try {
@@ -2475,6 +2684,7 @@ async function animateLottery(results, runContext) {
       const owner = result.owner !== result.team ? `Pick owned by ${result.owner}` : "Original team owns this pick";
       els.winnerOwner.textContent = owner;
       state.results.push(result);
+      await globalThis.flockvilleHub?.revealBroadcast(state.results);
       renderResults(presentation.skip || presentation.motion?.matches ? null : result.pick);
       els.stageProgress.value = state.results.length;
       if (!presentation.skip) {
@@ -2486,6 +2696,7 @@ async function animateLottery(results, runContext) {
     if (presentation.cancelled) return;
     saveLotteryToHistory(results, runContext);
     state.lastRunMeta.completed = true;
+    await globalThis.flockvilleHub?.revealBroadcast(state.results, "complete");
     els.drawProgress.textContent = `${results.length} of ${results.length} picks revealed · ${runContext.year}`;
     els.statusText.textContent = `The FLOCKVILLE HUB draft lottery is complete for ${runContext.year}. Results and trades are in history; export a backup.`;
   } catch (error) {
@@ -2496,6 +2707,9 @@ async function animateLottery(results, runContext) {
     els.statusText.textContent = "The reveal could not finish. Partial live results were discarded; no completed draw was saved.";
     showToast(error.message || "Could not finish the lottery reveal.");
   } finally {
+    if (!state.lastRunMeta?.completed) {
+      await globalThis.flockvilleHub?.revealBroadcast(state.results, "interrupted");
+    }
     clearTimeout(presentation.timer);
     presentation.wake = null;
     presentation.motion?.removeEventListener("change", motionChanged);
@@ -2514,6 +2728,10 @@ async function animateLottery(results, runContext) {
 
 function startLottery() {
   if (state.isRunning) return;
+  if (globalThis.flockvilleHub && !globalThis.flockvilleHub.isCommissioner()) {
+    showToast("Sign in as an authorized league commissioner to run a lottery.");
+    return;
+  }
 
   if (state.teams.length < 2) {
     showToast("Add at least two teams before running the lottery.");
@@ -2545,6 +2763,7 @@ function startLottery() {
       `A lottery for ${year} is already saved in history. Running again will replace the saved ${year} results and trades when the draw finishes. Continue?`
     );
     if (!replace) return;
+    if (globalThis.flockvilleHub?.authorizeFinalized(year, "Re-running this lottery") === false) return;
   }
 
   const odds = buildLotteryTransparencyData();
@@ -2657,7 +2876,7 @@ function mergeImportedHistory(incoming, source = "import") {
 
   const { merged, added, conflicts } = lotteryHistory.mergeHistory(state.lotteryHistory, incoming, { replaceConflicts });
   state.lotteryHistory = merged;
-  persistHistory();
+  if (persistHistory() === false) return { added: 0, replaced: 0, cancelled: true };
   return { added: added.length, replaced: replaceConflicts ? conflicts.length : 0 };
 }
 
@@ -2680,7 +2899,8 @@ async function importLotteryHistory() {
       return;
     }
 
-    const { added, replaced } = mergeImportedHistory(incoming);
+    const { added, replaced, cancelled } = mergeImportedHistory(incoming);
+    if (cancelled) return;
     state.importedSeasonCandidates = candidates;
     render();
     showToast(`History import: ${added} added, ${replaced} replaced.${candidates.length ? " Older finalized orders are available for explicit year assignment below." : ""}`);
@@ -2697,6 +2917,8 @@ function deleteSelectedHistoryYear() {
   const deleteFromCloud = cloudHistoryReady && supabaseHistoryClient?.isAuthenticated();
   const scope = deleteFromCloud ? "from this browser and Supabase" : "from this browser only; any cloud copy will remain";
   if (!confirm(`Delete the saved ${year} lottery (results, odds, and trades) ${scope}? This cannot be undone.`)) return;
+  if (globalThis.flockvilleHub?.authorizeFinalized(year, "Deleting this lottery") === false) return;
+  const reason = globalThis.flockvilleHub?.correctionReasons()[year];
 
   state.lotteryHistory = lotteryHistory.removeYear(state.lotteryHistory, year);
   state.selectedHistoryYear = "";
@@ -2707,10 +2929,13 @@ function deleteSelectedHistoryYear() {
     suppressCloudSync = false;
   }
   if (deleteFromCloud) {
-    supabaseHistoryClient.deleteYear(year)
-      .then(({ deleted }) => setSupabaseStatus(deleted
+    supabaseHistoryClient.deleteYear(year, { reason })
+      .then(({ deleted }) => {
+        globalThis.flockvilleHub?.confirmCorrections([year]);
+        setSupabaseStatus(deleted
         ? `Year ${year} was deleted from this browser and Supabase.`
-        : `Year ${year} was deleted from this browser. Supabase had no saved copy to remove.`))
+        : `Year ${year} was deleted from this browser. Supabase had no saved copy to remove.`);
+      })
       .catch((error) => {
         setSupabaseStatus(`Year ${year} was deleted locally but could not be deleted from Supabase: ${error.message}`);
         showToast(error.message);
@@ -2844,6 +3069,7 @@ function finalizeSeason(reviewedTrades = state.trades, alreadyConfirmed = false)
   if (!alreadyConfirmed && !confirm(`Finalize the ${resultYear} draw? This will archive results and advance to ${resultYear + 1}.`)) {
     return;
   }
+  if (globalThis.flockvilleHub?.authorizeFinalized(resultYear, "Finalizing these reviewed results") === false) return;
 
   state.seasonHistory.unshift({
     id: createId(),
@@ -2903,6 +3129,7 @@ async function importJson() {
     const parsed = JSON.parse(text);
     if (!await approveChecksum(parsed)) return;
     const restored = sanitizeImportedPayload(parsed);
+    if (Object.keys(restored.lotteryHistory).length && mergeImportedHistory(restored.lotteryHistory).cancelled) return;
 
     state.teams = restored.teams;
     state.results = restored.results;
@@ -2918,7 +3145,6 @@ async function importJson() {
     state.protectionOverrides = restored.protectionOverrides;
     state.undoTradeIds = [];
     state.dryRun = null;
-    if (Object.keys(restored.lotteryHistory).length) mergeImportedHistory(restored.lotteryHistory);
 
     applySettingsToUi(restored.settings);
     if (!state.ruleHistory.length) snapshotRuleVersion("Rules from import.");
@@ -3636,7 +3862,7 @@ async function previewRecovery() {
 function mergeRecovery() {
   if (state.isRunning || !state.recoveryCandidate) return;
   if (!confirm("Merge the previewed recovered records into saved history? Review conflicts before replacing any saved years.")) return;
-  mergeImportedHistory(state.recoveryCandidate);
+  if (mergeImportedHistory(state.recoveryCandidate).cancelled) return;
   state.recoveryCandidate = null;
   els.mergeRecoveryBtn.disabled = true;
   els.recoveryPreview.textContent = "Recovered history merged. Export History for a backup.";
