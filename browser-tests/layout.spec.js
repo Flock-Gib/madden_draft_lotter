@@ -12,6 +12,38 @@ async function loadPreview(page) {
   await expect(page.locator("#dryRunResults .result-card")).toHaveCount(8);
 }
 
+for (const width of [1280, 390]) {
+  test(`hero and static machine stay centered and usable at ${width}px`, async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop", "Fixed viewport coverage runs once.");
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto("/?page=ability");
+    const hero = page.locator(".hero");
+    for (const selector of [".brand-mark", ".hero h1", ".hero-actions"]) {
+      const bounds = await page.locator(selector).boundingBox();
+      expect(Math.abs(bounds.x + bounds.width / 2 - width / 2)).toBeLessThan(2);
+    }
+    await expect(hero.locator(".hero-logo")).toBeVisible();
+    await expect(hero.locator(".logo-motion-toggle")).toBeHidden();
+    await page.getByRole("navigation", { name: "Main sections" }).getByRole("link", { name: "Lottery" }).click();
+    const illustration = page.locator(".machine-illustration");
+    await expect(illustration).toBeVisible();
+    await expect(illustration).toHaveAttribute("aria-hidden", "true");
+    await expect(illustration.locator(".machine-stand")).toContainText("DRAFT LOTTERY");
+    const machine = await illustration.boundingBox();
+    expect(Math.abs(machine.x + machine.width / 2 - width / 2)).toBeLessThan(2);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+    await page.locator("#loadDemoBtn").click();
+    await page.locator("#manualProtectionToggle").check();
+    await page.locator("#setupLockBtn").click();
+    await page.locator("#startLotteryBtn").click();
+    await expect(page.locator("#statusText")).toContainText("complete", { timeout: 60000 });
+    await expect(page.locator(".machine-orb")).toHaveAttribute("data-phase", "complete");
+    await expect(illustration).toBeVisible();
+    await expect(page.locator("#resultsGrid .result-card")).toHaveCount(8);
+  });
+}
+
 for (const width of [1920, 768, 375]) {
   test(`spacious layout stays contained at ${width}px`, async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "desktop", "Fixed viewport coverage runs once.");

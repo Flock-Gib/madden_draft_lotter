@@ -23,7 +23,8 @@ The Flockville Madden League hub currently includes a static web application for
 - **Season Discord export** — copy any individual season as a Discord announcement; copy all seasons at once
 - **Ability Guide** — full-width chart with quick position filters, search across every field, and sorting by all nine chart fields; browse 25 entries at a time and expand full silver/gold requirements and notes. Tablets and phones use readable cards rather than a horizontally clipped table. Position order defaults to a football depth-chart sequence.
 - **Optional Supabase archive** — everyone can look up year-keyed lottery history; authorized league admins can publish it across browsers while local storage and JSON backups continue to work
-- Dark FLOCKVILLE HUB theme, league-supplied animated purple raven logo with pause control and a reduced-motion still, and responsive navigation with every tab visible on mobile
+- Dark FLOCKVILLE HUB theme with a centered header, league-supplied animated purple raven logo and pause control, and responsive navigation with every tab visible on mobile
+- A Flockville-themed static lottery machine appears before and after the draw and when 3D is unavailable; reduced-motion users see a still reveal
 - Separate shareable pages for the ability guide, lottery, results, history, and help; navigation keeps an in-progress draw on the page
 - **Rule tracking** — active rules are always visible; every settings change creates a versioned rule snapshot
 - Versioned localStorage persistence (teams, settings, results, trades, lock state, seed, history, rule history)
