@@ -470,3 +470,89 @@ test("reviewed manual and auto trades retain app metadata through sanitization a
   }
   assert.equal(JSON.stringify(existing), snapshot);
 });
+
+test("crossCheckTeams compares loaded checkboxes with the saved prior-year lottery", () => {
+  const saved = history.sanitizeHistory({
+    2025: record(2025, {
+      finalOrder: [
+        { pick: 1, team: "Bears", owner: "Bears", originalSlot: 1 },
+        { pick: 2, team: "Jets", owner: "Jets", originalSlot: 2 },
+        { pick: 3, team: "Bills", owner: "Bills", originalSlot: 3 },
+        { pick: 4, team: "Colts", owner: "Colts", originalSlot: 4 },
+      ],
+    }),
+  });
+  const teams = (extra = {}) => ["Bears", "Jets", "Bills", "Colts"].map((name) => ({ name, ...(extra[name] || {}) }));
+
+  const clean = history.crossCheckTeams(teams(), saved, 2026);
+  assert.equal(clean.ok, true);
+  assert.equal(clean.priorYear, 2025);
+  assert.equal(clean.source, "history");
+  assert.deepEqual(clean.teams.filter((team) => team.previousNumberOne).map((team) => team.name), ["Bears"]);
+  assert.deepEqual(clean.issues.map((issue) => issue.code).sort(), ["flag-applied", "flag-applied", "flag-applied", "flag-applied"]);
+  assert.match(history.summarizeCrossCheck(clean), /Cross-check passed: 4 teams verified against 2025 history/);
+
+  const wrong = history.crossCheckTeams(teams({ Colts: { previousTopThree: true } }), saved, 2026);
+  assert.equal(wrong.ok, false);
+  assert.ok(wrong.issues.some((issue) => issue.code === "flag-corrected" && issue.team === "Colts"));
+  assert.equal(wrong.teams.find((team) => team.name === "Colts").previousTopThree, false);
+  assert.match(history.summarizeCrossCheck(wrong), /Cross-check found 1 item to review/);
+
+  const manual = history.crossCheckTeams(teams({ Colts: { previousTopThree: true } }), saved, 2026, { useManual: true });
+  assert.equal(manual.source, "manual");
+  assert.ok(manual.issues.some((issue) => issue.code === "manual-flag-differs" && issue.team === "Colts"));
+  assert.equal(manual.teams.find((team) => team.name === "Colts").previousTopThree, true);
+
+  const renamed = history.crossCheckTeams(["Chicago Bears", "Jets", "Bills", "Colts"].map((name) => ({ name })), saved, 2026);
+  const mismatch = renamed.issues.find((issue) => issue.code === "name-mismatch");
+  assert.equal(mismatch.team, "Bears");
+  assert.match(mismatch.message, /Did you mean Chicago Bears\?/);
+});
+
+test("crossCheckTeams reports missing history, impossible flags, and CPU lock overrides", () => {
+  const teams = [
+    { name: "Bears", previousNumberOne: true, previousTopThree: true, cpuLocked: true },
+    { name: "Jets", previousNumberOne: true },
+    { name: "Bills" },
+  ];
+  const none = history.crossCheckTeams(teams, {}, 2026);
+  const codes = none.issues.map((issue) => issue.code);
+  assert.ok(codes.includes("missing-history"));
+  assert.ok(codes.includes("too-many-number-one"));
+  assert.ok(codes.includes("number-one-not-top-three"));
+  assert.ok(codes.includes("cpu-override"));
+  assert.equal(none.lockedCount, 1);
+  assert.equal(none.source, "none");
+
+  const relaxed = history.crossCheckTeams([{ name: "Bears" }], {}, 2026, { enforce: { topThreeCooldown: false, noConsecutiveNumberOne: false } });
+  assert.equal(relaxed.ok, true);
+  assert.equal(relaxed.issues[0].level, "info");
+
+  const locked = history.crossCheckTeams([{ name: "Bears", cpuLocked: true }, { name: "Jets", cpuLocked: true }], {}, 2026);
+  assert.ok(locked.issues.some((issue) => issue.code === "all-locked"));
+  assert.equal(locked.issues.find((issue) => issue.code === "all-locked").level, "info");
+  assert.equal(history.crossCheckTeams([], {}, 2026).checked, 0);
+  assert.equal(history.summarizeCrossCheck(history.crossCheckTeams([], {}, 2026)), "");
+});
+
+test("cross-check reports the effective independent override rather than stale loaded checkboxes", () => {
+  const saved = { 2025: history.createManualRecord({
+    year: 2025, completeness: "top-three",
+    finalOrder: ["Bears", "Jets", "Bills"].map((team, index) => ({ pick: index + 1, team })),
+  }) };
+  const teams = ["Bears", "Jets", "Bills"].map((name) => ({ name }));
+  const matching = history.crossCheckTeams(teams, saved, 2026, { overrides: { previousNumberOne: ["Bears"] } });
+  assert.equal(matching.issues.some((issue) => issue.code === "manual-flag-differs"), false);
+  const cleared = history.crossCheckTeams(teams, saved, 2026, { overrides: { previousNumberOne: [] } });
+  assert.match(cleared.issues.find((issue) => issue.code === "manual-flag-differs").message, /Bears: previous #1 is unchecked/);
+  assert.equal(cleared.teams[0].previousNumberOne, false);
+  assert.equal(cleared.teams[0].previousTopThree, true);
+});
+
+test("changedYears returns only new or different years regardless of key order", () => {
+  const previous = { 2024: { year: 2024, a: 1, b: { x: 1, y: 2 } }, 2025: { year: 2025 } };
+  const next = { 2024: { b: { y: 2, x: 1 }, a: 1, year: 2024 }, 2025: { year: 2025, extra: true }, 2026: { year: 2026 } };
+  assert.deepEqual(history.changedYears(previous, next).sort(), ["2025", "2026"]);
+  assert.deepEqual(history.changedYears(next, next), []);
+  assert.deepEqual(history.changedYears(undefined, {}), []);
+});

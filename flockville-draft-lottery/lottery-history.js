@@ -254,6 +254,128 @@
     };
   }
 
+  /** Years in `next` whose saved record is new or different from `previous`. */
+  function changedYears(previous, next) {
+    return Object.keys(next || {}).filter((year) => {
+      const before = previous?.[year];
+      return !before || stableStringify(before) !== stableStringify(next[year]);
+    });
+  }
+
+  function stableStringify(value) {
+    const sort = (item) => {
+      if (Array.isArray(item)) return item.map(sort);
+      if (item && typeof item === "object") {
+        return Object.fromEntries(Object.keys(item).sort().map((key) => [key, sort(item[key])]));
+      }
+      return item;
+    };
+    return JSON.stringify(sort(value));
+  }
+
+  const FLAG_LABELS = { previousTopThree: "previous top three", previousNumberOne: "previous #1" };
+
+  function similarTeamName(name, candidates) {
+    const key = normalizeName(name).toLowerCase();
+    return candidates.find((candidate) => {
+      const other = candidate.toLowerCase();
+      return other !== key && (other.endsWith(` ${key}`) || key.endsWith(` ${other}`));
+    }) || "";
+  }
+
+  /**
+   * Cross-check every checkbox variable (previous top three, previous #1, CPU / locked)
+   * for the loaded teams against the saved lottery history for the prior season.
+   */
+  function crossCheckTeams(teams, history, year, { useManual = false, overrides = {}, enforce = {} } = {}) {
+    const safeYear = sanitizeYear(year);
+    const priorYear = safeYear === null ? null : safeYear - 1;
+    const roster = Array.isArray(teams) ? teams : [];
+    const issues = [];
+    const add = (level, code, message, team = "") => issues.push({ level, code, team, message });
+    const flags = ["previousTopThree", "previousNumberOne"];
+    const manualFlags = Object.fromEntries(flags.map((flag) => [flag, useManual || Array.isArray(overrides?.[flag])]));
+    const result = (extra) => ({ year: safeYear, priorYear, checked: roster.length, issues, ok: !issues.some((issue) => issue.level !== "info"), ...extra });
+    if (!roster.length) return result({ source: "none", teams: [] });
+
+    const derived = deriveProtection(roster, history, safeYear, useManual);
+    const effective = derived.teams.map((team) => {
+      const copy = { ...team };
+      flags.forEach((flag) => {
+        if (Array.isArray(overrides?.[flag])) {
+          copy[flag] = overrides[flag].some((name) => normalizeName(name).toLowerCase() === normalizeName(team.name).toLowerCase());
+        }
+      });
+      return copy;
+    });
+    const prior = derived.record;
+    const needed = enforce.topThreeCooldown !== false || enforce.noConsecutiveNumberOne !== false;
+
+    if (!prior) {
+      add(needed ? "warning" : "info", "missing-history",
+        `No ${priorYear} lottery is saved, so the previous top-three and previous #1 boxes cannot be verified against history.`);
+    } else {
+      const names = new Set(roster.map((team) => normalizeName(team.name).toLowerCase()));
+      roster.forEach((team, index) => {
+        const pick = prior.finalOrder.find((entry) => entry.team.toLowerCase() === normalizeName(team.name).toLowerCase())?.pick;
+        const expected = { previousTopThree: pick !== undefined && pick <= 3, previousNumberOne: pick === 1 };
+        flags.forEach((flag) => {
+          const checked = manualFlags[flag]
+            ? Boolean(effective[index][flag])
+            : Boolean(team[flag]);
+          if (checked === expected[flag]) return;
+          if (manualFlags[flag]) {
+            add("warning", "manual-flag-differs",
+              `${team.name}: ${FLAG_LABELS[flag]} is ${checked ? "checked" : "unchecked"}, but ${priorYear} history says ${expected[flag] ? "yes" : "no"}. Your manual choice is being used.`, team.name);
+          } else if (team[flag]) {
+            add("warning", "flag-corrected",
+              `${team.name}: loaded ${FLAG_LABELS[flag]} was checked, but ${priorYear} history says no. The history value is used.`, team.name);
+          } else {
+            add("info", "flag-applied",
+              `${team.name}: ${priorYear} history marks ${FLAG_LABELS[flag]}, so that restriction was applied automatically.`, team.name);
+          }
+        });
+      });
+      const candidates = roster.map((team) => normalizeName(team.name));
+      prior.finalOrder.filter((entry) => entry.pick <= 3).forEach((entry) => {
+        if (names.has(entry.team.toLowerCase())) return;
+        const similar = similarTeamName(entry.team, candidates);
+        add("warning", "name-mismatch",
+          `${priorYear} pick #${entry.pick} (${entry.team}) is not in the loaded teams, so its restriction cannot apply.${similar ? ` Did you mean ${similar}? Team names must match exactly.` : ""}`, entry.team);
+      });
+    }
+
+    const numberOne = effective.filter((team) => team.previousNumberOne);
+    const topThree = effective.filter((team) => team.previousTopThree);
+    if (numberOne.length > 1) add("warning", "too-many-number-one", `${numberOne.length} teams are marked previous #1 (${numberOne.map((team) => team.name).join(", ")}); only one team can have held pick #1.`);
+    if (topThree.length > 3) add("warning", "too-many-top-three", `${topThree.length} teams are marked previous top three; only three teams can have held picks #1 to #3.`);
+    numberOne.filter((team) => !team.previousTopThree).forEach((team) => add("warning", "number-one-not-top-three", `${team.name} is marked previous #1 but not previous top three.`, team.name));
+
+    const locked = effective.filter((team) => team.cpuLocked);
+    if (locked.length === effective.length) {
+      add("info", "all-locked", "Every team is CPU / locked: no lottery balls are needed and every team keeps its slot.");
+    }
+    locked.filter((team) => team.previousNumberOne || team.previousTopThree).forEach((team) => {
+      add("info", "cpu-override",
+        `${team.name} is CPU / locked, so its ${team.previousNumberOne ? "previous #1" : "top-three cooldown"} restriction is overridden; it keeps its slot.`, team.name);
+    });
+
+    return result({
+      source: prior ? (useManual ? "manual" : "history") : "none",
+      teams: effective,
+      lockedCount: locked.length,
+    });
+  }
+
+  function summarizeCrossCheck(report) {
+    if (!report.checked) return "";
+    const problems = report.issues.filter((issue) => issue.level !== "info").length;
+    const basis = report.source === "none" ? "" : ` against ${report.priorYear} history`;
+    return problems
+      ? `Cross-check found ${problems} item${problems === 1 ? "" : "s"} to review across ${report.checked} team${report.checked === 1 ? "" : "s"}${basis}.`
+      : `Cross-check passed: ${report.checked} team${report.checked === 1 ? "" : "s"} verified${basis}.`;
+  }
+
   function sanitizeHistory(value) {
     const history = {};
     if (!value || typeof value !== "object") return history;
@@ -328,6 +450,9 @@
   return {
     HISTORY_EXPORT_TYPE,
     buildHistoryExport,
+    changedYears,
+    crossCheckTeams,
+    summarizeCrossCheck,
     createManualRecord,
     deriveProtection,
     extractHistoryFromPayload,

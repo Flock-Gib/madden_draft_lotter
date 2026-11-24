@@ -7,6 +7,20 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, () => {
   const TABLE = "draft_lottery_history";
 
+  function canonical(value) {
+    if (Array.isArray(value)) return value.map(canonical);
+    if (value && typeof value === "object") {
+      return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]));
+    }
+    return value;
+  }
+
+  // JSON round-trip drops undefined fields exactly as the request body did.
+  function sameJson(stored, sent) {
+    if (stored === undefined) return false;
+    return JSON.stringify(canonical(stored)) === JSON.stringify(canonical(JSON.parse(JSON.stringify(sent))));
+  }
+
   function createClient(config = {}, { fetchImpl = globalThis.fetch, storage = globalThis.sessionStorage } = {}) {
     let url = "";
     let anonKey = "";
@@ -100,20 +114,20 @@
 
     async function request(path, options = {}, retry = true) {
       if (!url || !anonKey) throw new Error("Configure Supabase URL and publishable anon key first.");
-      const accessToken = session?.access_token || anonKey;
+      const token = options.anonymous ? "" : session?.access_token;
       const headers = {
         apikey: anonKey,
         ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
         ...options.headers,
       };
-      if (session?.access_token) headers.Authorization = `Bearer ${accessToken}`;
+      if (token) headers.Authorization = `Bearer ${token}`;
       else if (!anonKey.startsWith("sb_publishable_")) headers.Authorization = `Bearer ${anonKey}`;
       const response = await fetchWithTimeout(`${url}${path}`, {
         method: options.method || "GET",
         headers,
         ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
       });
-      if (response.status === 401 && retry && session?.refresh_token) {
+      if (response.status === 401 && retry && token && session?.refresh_token) {
         await refreshSession();
         return request(path, options, false);
       }
@@ -173,13 +187,26 @@
       }
     }
 
-    async function loadHistory() {
+    async function checkAdmin() {
+      if (!session?.access_token) return false;
       const isAdmin = await request("/rest/v1/rpc/is_flockville_admin", {
         method: "POST",
         body: {},
       });
-      if (isAdmin !== true) throw new Error("This account is not authorized as a Flockville admin. Ask the project owner to add it to flockville_admins.");
-      const rows = await request(`/rest/v1/${TABLE}?select=season_year,record&order=season_year.desc`);
+      return isAdmin === true;
+    }
+
+    // Lottery history is public; no sign-in is needed to read it.
+    async function loadHistory() {
+      const path = `/rest/v1/${TABLE}?select=season_year,record&order=season_year.desc`;
+      let rows;
+      try {
+        rows = await request(path);
+      } catch (error) {
+        // An expired or revoked admin session must not hide the public archive.
+        if (!session?.access_token || /did not respond/.test(error.message)) throw error;
+        rows = await request(path, { anonymous: true });
+      }
       if (!Array.isArray(rows)) throw new Error("Supabase returned an invalid lottery history response.");
       return rows.reduce((records, row) => {
         const year = Number(row.season_year);
@@ -190,21 +217,29 @@
       }, {});
     }
 
-    function saveHistory(records) {
+    function saveHistory(records, { years } = {}) {
       if (!session?.access_token) return Promise.reject(new Error("Sign in to Supabase before saving cloud history."));
+      const wanted = years ? new Set(years.map((year) => Number(year))) : null;
       const rows = Object.values(records || {})
-        .filter((record) => Number.isInteger(Number(record?.year)))
-        .map((record) => ({
-          season_year: Number(record.year),
-          record,
-          updated_at: new Date().toISOString(),
-        }));
-      if (!rows.length) return Promise.resolve();
-      return enqueue(() => request(`/rest/v1/${TABLE}?on_conflict=season_year`, {
-        method: "POST",
-        headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-        body: rows,
-      }));
+        .filter((record) => Number.isInteger(Number(record?.year)) && (!wanted || wanted.has(Number(record.year))))
+        .map((record) => ({ season_year: Number(record.year), record }));
+      if (!rows.length) return Promise.resolve({ saved: [] });
+      return enqueue(async () => {
+        const returned = await request(`/rest/v1/${TABLE}?on_conflict=season_year`, {
+          method: "POST",
+          headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+          body: rows,
+        });
+        // A 2xx with missing or altered rows (for example RLS filtering) is not a saved record.
+        const confirmed = new Map((Array.isArray(returned) ? returned : [])
+          .map((row) => [Number(row?.season_year), row?.record]));
+        rows.forEach((row) => {
+          if (!sameJson(confirmed.get(row.season_year), row.record)) {
+            throw new Error(`Supabase did not confirm the saved ${row.season_year} lottery. Cloud storage remains unverified; retry the save.`);
+          }
+        });
+        return { saved: rows.map((row) => row.season_year), savedAt: new Date().toISOString() };
+      });
     }
 
     function deleteYear(year) {
@@ -213,13 +248,24 @@
       if (!Number.isInteger(safeYear) || safeYear < 1000 || safeYear > 9999) {
         return Promise.reject(new Error("Choose a valid season year to delete."));
       }
-      return enqueue(() => request(`/rest/v1/${TABLE}?season_year=eq.${safeYear}`, {
-        method: "DELETE",
-        headers: { Prefer: "return=minimal" },
-      }));
+      return enqueue(async () => {
+        const removed = await request(`/rest/v1/${TABLE}?season_year=eq.${safeYear}`, {
+          method: "DELETE",
+          headers: { Prefer: "return=representation" },
+        });
+        if (!Array.isArray(removed)) throw new Error("Supabase did not confirm the deleted lottery year.");
+        if (!removed.length) {
+          const remaining = await request(`/rest/v1/${TABLE}?select=season_year&season_year=eq.${safeYear}`);
+          if (!Array.isArray(remaining) || remaining.length) {
+            throw new Error(`Supabase did not delete ${safeYear}. Refresh your admin access and try again.`);
+          }
+        }
+        return { deleted: removed.length };
+      });
     }
 
     return {
+      checkAdmin,
       deleteYear,
       initialize,
       isAuthenticated: () => Boolean(session?.access_token),

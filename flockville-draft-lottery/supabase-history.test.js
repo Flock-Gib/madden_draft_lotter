@@ -93,7 +93,10 @@ test("expired sessions refresh once and serialized saves/deletes preserve their 
       });
     }
     if (url.endsWith("/auth/v1/user")) return response(200, { email: "admin@example.com" });
-    return response(204);
+    if (options.method === "POST" && url.includes("/rest/v1/draft_lottery_history")) {
+      return response(201, JSON.parse(options.body));
+    }
+    return response(200, []);
   }, storage);
   await client.initialize({ hash: "", pathname: "/", search: "" });
   await Promise.all([
@@ -101,16 +104,58 @@ test("expired sessions refresh once and serialized saves/deletes preserve their 
     client.deleteYear(2025),
   ]);
   const writes = calls.filter(({ url }) => url.includes("/rest/v1/"));
-  assert.equal(writes.length, 2);
+  assert.equal(writes.length, 3);
   assert.equal(writes[0].options.method, "POST");
   assert.equal(writes[0].options.headers.Authorization, "Bearer fresh");
-  assert.deepEqual(JSON.parse(writes[0].options.body), [{
-    season_year: 2026,
-    record: { year: 2026 },
-    updated_at: JSON.parse(writes[0].options.body)[0].updated_at,
-  }]);
+  assert.match(writes[0].options.headers.Prefer, /return=representation/);
+  assert.deepEqual(JSON.parse(writes[0].options.body), [{ season_year: 2026, record: { year: 2026 } }]);
   assert.match(writes[1].url, /season_year=eq\.2025/);
   assert.equal(writes[1].options.method, "DELETE");
+});
+
+test("saves send only the requested years and require Supabase to echo each stored record", async () => {
+  const client = makeClient(async (url, options) => {
+    if (url.endsWith("/auth/v1/user")) return response(200, { email: "admin@example.com" });
+    if (options.method === "POST") return response(201, JSON.parse(options.body));
+    return response(200, []);
+  });
+  await client.initialize({ hash: "#access_token=access", pathname: "/", search: "" }, () => {});
+  const saved = await client.saveHistory({ 2025: { year: 2025 }, 2026: { year: 2026, finalOrder: [{ pick: 1 }] } }, { years: ["2026"] });
+  assert.deepEqual(saved.saved, [2026]);
+  assert.ok(saved.savedAt);
+
+  const silent = makeClient(async (url, options) => {
+    if (url.endsWith("/auth/v1/user")) return response(200, { email: "admin@example.com" });
+    return options.method === "POST" ? response(201, []) : response(200, []);
+  });
+  await silent.initialize({ hash: "#access_token=access", pathname: "/", search: "" }, () => {});
+  await assert.rejects(silent.saveHistory({ 2026: { year: 2026 } }), /did not confirm the saved 2026 lottery/);
+
+  const altered = makeClient(async (url, options) => {
+    if (url.endsWith("/auth/v1/user")) return response(200, { email: "admin@example.com" });
+    return options.method === "POST"
+      ? response(201, [{ season_year: 2026, record: { year: 2026, finalOrder: [] } }]) : response(200, []);
+  });
+  await altered.initialize({ hash: "#access_token=access", pathname: "/", search: "" }, () => {});
+  await assert.rejects(altered.saveHistory({ 2026: { year: 2026, finalOrder: [{ pick: 1 }] } }), /did not confirm/);
+});
+
+test("deleting reports how many cloud rows were removed", async () => {
+  const client = makeClient(async (url, options) => {
+    if (url.endsWith("/auth/v1/user")) return response(200, { email: "admin@example.com" });
+    return response(200, options.method === "DELETE" ? [{ season_year: 2025 }] : []);
+  });
+  await client.initialize({ hash: "#access_token=access", pathname: "/", search: "" }, () => {});
+  assert.deepEqual(await client.deleteYear(2025), { deleted: 1 });
+  const none = makeClient(async (url) => response(200, url.endsWith("/auth/v1/user") ? { email: "a@b.co" } : []));
+  await none.initialize({ hash: "#access_token=access", pathname: "/", search: "" }, () => {});
+  assert.deepEqual(await none.deleteYear(2025), { deleted: 0 });
+  const denied = makeClient(async (url, options) => {
+    if (url.endsWith("/auth/v1/user")) return response(200, { email: "a@b.co" });
+    return response(200, options.method === "DELETE" ? [] : [{ season_year: 2025 }]);
+  });
+  await denied.initialize({ hash: "#access_token=access", pathname: "/", search: "" }, () => {});
+  await assert.rejects(denied.deleteYear(2025), /did not delete 2025/);
 });
 
 test("configuration and Supabase errors are surfaced instead of silently falling back", async () => {
@@ -133,16 +178,46 @@ test("configuration and Supabase errors are surfaced instead of silently falling
   assert.equal(cleanedUrl, "/");
 });
 
-test("loading distinguishes a non-admin account from an empty archive", async () => {
+test("anyone can read the archive without signing in, and non-admin accounts are identified separately", async () => {
+  const requests = [];
+  const visitor = makeClient(async (url, options) => {
+    requests.push({ url, options });
+    return response(200, [{ season_year: 2025, record: { year: 2025 } }]);
+  });
+  await visitor.initialize({ hash: "", pathname: "/", search: "" });
+  assert.deepEqual(await visitor.loadHistory(), { 2025: { year: 2025 } });
+  assert.equal(requests[0].options.headers.Authorization, undefined);
+  assert.equal(requests[0].options.headers.apikey, "sb_publishable_test");
+  assert.equal(await visitor.checkAdmin(), false);
+  assert.equal(requests.length, 1, "signed-out visitors never call the admin check");
+
   const calls = [];
   const client = makeClient(async (url) => {
     calls.push(url);
     if (url.endsWith("/auth/v1/user")) return response(200, { email: "user@example.com" });
-    return response(200, false);
+    return url.endsWith("/rpc/is_flockville_admin") ? response(200, false) : response(200, []);
   });
   await client.initialize({ hash: "#access_token=access", pathname: "/", search: "" }, () => {});
-  await assert.rejects(client.loadHistory(), /not authorized as a Flockville admin/);
-  assert.equal(calls.some((url) => url.includes("draft_lottery_history")), false);
+  assert.deepEqual(await client.loadHistory(), {});
+  assert.equal(await client.checkAdmin(), false);
+  assert.equal(calls.some((url) => url.includes("draft_lottery_history")), true);
+});
+
+test("an expired admin session falls back to the public archive instead of hiding it", async () => {
+  const storage = new Map([["flockvilleSupabaseSession", JSON.stringify({
+    access_token: "expired", refresh_token: "bad-refresh", expires_at: 1,
+  })]]);
+  const reads = [];
+  const client = makeClient(async (url, options) => {
+    if (url.endsWith("/auth/v1/user")) return response(200, { email: "admin@example.com" });
+    if (url.includes("/auth/v1/token?")) return response(400, { message: "refresh revoked" });
+    reads.push(options.headers.Authorization);
+    return options.headers.Authorization ? response(401, { message: "JWT expired" })
+      : response(200, [{ season_year: 2024, record: { year: 2024 } }]);
+  }, storage);
+  await client.initialize({ hash: "", pathname: "/", search: "" }).catch(() => {});
+  assert.deepEqual(await client.loadHistory(), { 2024: { year: 2024 } });
+  assert.equal(reads.at(-1), undefined);
 });
 
 test("a timed-out connection surfaces a retryable error", async () => {

@@ -1062,15 +1062,19 @@ test("ability chart searches hidden requirement fields and resets pagination whe
 });
 
 test("cloud-history loading preserves declined conflicts and does not echo the downloaded archive back", async () => {
-  let cloudWrites = 0;
+  const cloudWrites = [];
   const cloudClient = {
     isAuthenticated: () => true,
     isConfigured: () => true,
     userEmail: () => "admin@example.com",
+    checkAdmin: async () => true,
     loadHistory: async () => history.upsertRecord({
       "2025": prior(2025, ["Cloud One", "Cloud Two", "Cloud Three"]),
     }, prior(2024)),
-    saveHistory: async () => { cloudWrites += 1; },
+    saveHistory: async (_records, { years } = {}) => {
+      cloudWrites.push(years || "all");
+      return { saved: years || [2025, 2024], savedAt: new Date().toISOString() };
+    },
   };
   const a = app(new Map(), {
     FLOCKVILLE_SUPABASE_CONFIG: { url: "https://example.supabase.co", anonKey: "sb_publishable_test" },
@@ -1079,22 +1083,130 @@ test("cloud-history loading preserves declined conflicts and does not echo the d
   a.state.lotteryHistory = history.upsertRecord({}, prior(2025));
   a.context.acceptConfirmation = false;
   a.evaluate("persistHistory()");
-  assert.equal(cloudWrites, 0);
+  a.evaluate("pendingCloudYears.clear()");
+  assert.equal(cloudWrites.length, 0);
 
   await a.evaluate("loadSupabaseHistory()");
 
   assert.equal(a.state.lotteryHistory["2025"].finalOrder[0].team, "Team 0");
   assert.equal(a.state.lotteryHistory["2024"].finalOrder[0].team, "Team 0");
-  assert.equal(cloudWrites, 0);
+  assert.equal(cloudWrites.length, 0);
   assert.match(a.node("supabaseStatus").textContent, /loaded 1 new year; kept 1 local conflict/);
+  assert.match(a.confirmations.at(-1), /league archive/);
 
   a.evaluate("persistHistory()");
-  assert.equal(cloudWrites, 0);
+  assert.equal(cloudWrites.length, 0);
   a.context.acceptConfirmation = true;
   await a.evaluate("publishLocalHistory()");
-  assert.equal(cloudWrites, 1);
+  assert.deepEqual(cloudWrites, ["all"]);
   a.evaluate("persistHistory()");
-  assert.equal(cloudWrites, 2);
+  assert.equal(cloudWrites.length, 1, "unchanged history is not written again");
+  a.state.lotteryHistory = history.upsertRecord(a.state.lotteryHistory, prior(2025, ["Edited One", "Edited Two", "Edited Three"]));
+  a.evaluate("persistHistory()");
+  await a.evaluate("cloudSyncRun");
+  assert.deepEqual(JSON.parse(JSON.stringify(cloudWrites.at(-1))), ["2025"], "only the changed year is sent");
+});
+
+test("a lottery saved while signed out stays pending, shows where it is saved, and publishes after admin sign-in", async () => {
+  const cloudWrites = [];
+  let admin = false;
+  const cloudClient = {
+    isAuthenticated: () => admin,
+    isConfigured: () => true,
+    userEmail: () => "admin@example.com",
+    checkAdmin: async () => admin,
+    loadHistory: async () => ({}),
+    saveHistory: async (_records, { years }) => {
+      cloudWrites.push(years);
+      return { saved: years.map(Number), savedAt: "2026-05-01T12:00:00.000Z" };
+    },
+  };
+  const storage = new Map();
+  const a = app(storage, {
+    FLOCKVILLE_SUPABASE_CONFIG: { url: "https://example.supabase.co", anonKey: "sb_publishable_test" },
+    flockvilleSupabaseHistory: { createClient: () => cloudClient },
+  });
+  a.state.lotteryHistory = history.upsertRecord({}, prior(2026));
+  a.evaluate("persistHistory()");
+
+  assert.equal(cloudWrites.length, 0);
+  assert.deepEqual(JSON.parse(storage.get("flockvilleCloudPendingYears")), ["2026"]);
+  assert.match(a.node("lotterySaveStatus").textContent, /2026 saved in this browser but not yet in Supabase\. Sign in as a league admin/);
+
+  admin = true;
+  await a.evaluate("loadSupabaseHistory()");
+  assert.deepEqual(JSON.parse(JSON.stringify(cloudWrites)), [["2026"]]);
+  assert.deepEqual(JSON.parse(storage.get("flockvilleCloudPendingYears")), []);
+  assert.match(a.node("lotterySaveStatus").textContent, /Saved to Supabase and confirmed: 2026/);
+});
+
+test("an unconfirmed cloud save is reported, kept pending, and retried", async () => {
+  let failing = true;
+  const cloudClient = {
+    isAuthenticated: () => true,
+    isConfigured: () => true,
+    userEmail: () => "admin@example.com",
+    checkAdmin: async () => true,
+    loadHistory: async () => ({}),
+    saveHistory: async (_records, { years }) => {
+      if (failing) throw new Error("Supabase did not confirm the saved 2026 lottery.");
+      return { saved: years.map(Number), savedAt: "2026-05-01T12:00:00.000Z" };
+    },
+  };
+  const a = app(new Map(), {
+    FLOCKVILLE_SUPABASE_CONFIG: { url: "https://example.supabase.co", anonKey: "sb_publishable_test" },
+    flockvilleSupabaseHistory: { createClient: () => cloudClient },
+  });
+  await a.evaluate("loadSupabaseHistory()");
+  a.state.lotteryHistory = history.upsertRecord({}, prior(2026));
+  a.evaluate("persistHistory()");
+  await a.evaluate("cloudSyncRun");
+
+  assert.match(a.node("lotterySaveStatus").textContent, /Saved in this browser, but Supabase did not confirm 2026/);
+  assert.match(a.messages.at(-1), /did not confirm/);
+  a.evaluate("clearTimeout(cloudRetryTimer)");
+
+  failing = false;
+  await a.evaluate("syncPendingCloudYears()");
+  assert.match(a.node("lotterySaveStatus").textContent, /Saved to Supabase and confirmed: 2026/);
+});
+
+test("failed browser storage is never presented as a locally saved lottery", () => {
+  const a = app();
+  a.context.localStorage.setItem = () => { throw new Error("Storage full"); };
+  a.state.lotteryHistory = history.upsertRecord({}, prior(2026));
+  a.evaluate("persistHistory()");
+  assert.match(a.node("lotterySaveStatus").textContent, /Browser storage failed/);
+  assert.doesNotMatch(a.node("lotterySaveStatus").textContent, /Saved in this browser/i);
+  assert.ok(a.messages.some((message) => /Could not save lottery history/.test(message)));
+});
+
+test("edits made while publishing remain queued and are confirmed in a subsequent write", async () => {
+  let releaseFirst;
+  const writes = [];
+  const cloudClient = {
+    isAuthenticated: () => true,
+    isConfigured: () => true,
+    userEmail: () => "admin@example.com",
+    saveHistory: async (records, { years } = {}) => {
+      writes.push(records);
+      if (writes.length === 1) await new Promise((resolve) => { releaseFirst = resolve; });
+      return { saved: years || Object.keys(records).map(Number), savedAt: new Date().toISOString() };
+    },
+  };
+  const a = app(new Map(), { flockvilleSupabaseHistory: { createClient: () => cloudClient } });
+  a.state.lotteryHistory = history.upsertRecord({}, prior(2026));
+  a.evaluate("cloudAccessVerified = true");
+  a.evaluate("persistHistory()");
+  const publishing = a.evaluate("publishLocalHistory()");
+  a.state.lotteryHistory = history.upsertRecord(a.state.lotteryHistory, prior(2026, ["New One", "New Two", "New Three"]));
+  a.evaluate("persistHistory()");
+  releaseFirst();
+  await publishing;
+  assert.equal(writes.length, 2);
+  assert.equal(writes[0]["2026"].finalOrder[0].team, "Team 0");
+  assert.equal(writes[1]["2026"].finalOrder[0].team, "New One");
+  assert.equal(a.evaluate("getPendingCloudYears().length"), 0);
 });
 
 test("imported results without slot metadata use standings and tie-break ordering", () => {

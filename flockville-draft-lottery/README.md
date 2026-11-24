@@ -22,7 +22,7 @@ The Flockville Madden League hub currently includes a static web application for
 - **Lottery history** — full draw order per finalized season, linked to the rule version in effect
 - **Season Discord export** — copy any individual season as a Discord announcement; copy all seasons at once
 - **Ability Guide** — full-width chart with quick position filters, search across every field, and sorting by all nine chart fields; browse 25 entries at a time and expand full silver/gold requirements and notes. Tablets and phones use readable cards rather than a horizontally clipped table. Position order defaults to a football depth-chart sequence.
-- **Optional Supabase archive** — league admins can sync and restore year-keyed lottery history across browsers while local storage and JSON backups continue to work
+- **Optional Supabase archive** — everyone can look up year-keyed lottery history; authorized league admins can publish it across browsers while local storage and JSON backups continue to work
 - Dark FLOCKVILLE HUB theme, league-supplied animated purple raven logo with pause control and a reduced-motion still, and responsive navigation with every tab visible on mobile
 - Separate shareable pages for the ability guide, lottery, results, history, and help; navigation keeps an in-progress draw on the page
 - **Rule tracking** — active rules are always visible; every settings change creates a versioned rule snapshot
@@ -162,7 +162,9 @@ Select **Playoff teams** (2–64, default 8), then **Generate Bracket** from the
 - Pick a year in the **Past Lotteries** dropdown to view its full results and trades. **Delete This Year** removes one saved year after you confirm.
 - **Export History** downloads all saved years as JSON. **Import History** accepts a history export or a full app export, merges it in, and asks before replacing years you already have.
 - History is stored in its own localStorage key (`flockvilleDraftLotteryHistory`), so **Reset** does not delete it.
-- The optional Supabase archive stores the same year-keyed records. Only accounts explicitly listed as Flockville admins can read or change cloud history; local history continues to work without Supabase.
+- The Supabase archive stores the same year-keyed records. Everyone can read cloud history without signing in; only accounts explicitly listed as Flockville admins can change it. Completed draws and edits queue only changed years, so unrelated local years do not overwrite newer cloud copies. A save is marked confirmed only after Supabase returns the matching stored records.
+- The lottery and History pages show whether a draw is saved locally, waiting for admin sign-in, saving, confirmed, or failed. Pending years survive reload and retry after verified admin sign-in, reconnection, or **Retry cloud save**. Failed writes retry up to three times automatically; export a backup if errors persist.
+- Loading or importing teams cross-checks **Previous Top 3**, **Previous #1**, and **CPU / locked**. Exact-prior-year history supplies automatic flags for original teams, not traded owners. Manual overrides remain explicit and disagreements, missing history, unmatched names, and inconsistent flags are surfaced in the setup panel. CPU locks remain current-season choices, not copied from previous seasons; they override protections only for their locked slots.
 - **Finalize Season** archives the live draw using its recorded year (not a subsequently selected year) and advances to the following season. Protections already come from Past Lotteries; finalizing a historical draw is not necessary. Legacy live results without a verified year must be assigned through the history editor.
 - **Archive This Year** hides a record from the default year list without deleting it. Enable **Show archived years** to view it and restore it using the archive action. Archived records still supply exact-prior-year protection and remain in backups.
 
@@ -182,15 +184,15 @@ All JSON exports include a **SHA-256 checksum** generated with Web Crypto, which
 
 The website can run without a database. To share lottery history across devices, create a Supabase project and:
 
-1. Open the project's SQL Editor and run [`../supabase/schema.sql`](../supabase/schema.sql). Row-level security keeps the archive private to authorized league admins.
+1. Open the project's SQL Editor and run [`../supabase/schema.sql`](../supabase/schema.sql). **Existing projects must re-run this updated file** to enable public lookup, validate new writes, and stamp saves with the database clock. It preserves existing records and admin accounts. Row-level security allows public reads but restricts all writes to authorized league admins.
 2. Invite the administrator from **Authentication → Users**. In the SQL file, replace the example email and run the commented insert statement as the project owner to authorize that account.
 3. Add the deployed app URL to Supabase **Authentication → URL Configuration → Redirect URLs**.
 4. Put the project URL and its **publishable** (or legacy anon) key in `supabase-config.js`. These browser values are public; **never** put a `service_role` or secret key in this file or the website.
-5. Reload the site, enter the admin email under **Past Lotteries → Supabase History**, and open the sign-in link in the same browser. Cloud history loads and merges with local years; publishing local history requires an explicit confirmation. Edits synchronize while signed in, and deleting a year also deletes that cloud year.
+5. Reload the site. Public history loads automatically. To save draws to Supabase, enter the admin email under **Past Lotteries → Supabase History** and open the sign-in link in the same browser. Wait for verified publishing access before drawing; pending local draws publish once access and archive reconciliation succeed.
 
-Use the **Publish Local History** button to upload existing browser records to a new archive. Keep JSON exports as backups. The configured project URL and publishable key are public browser configuration; database access is controlled by the admin-only row-level security policies. Without configuration, cloud controls remain disabled and local features are unchanged.
+Use **Publish Local History** to upload all existing browser records explicitly; confirmation warns that matching cloud years will be replaced. Automatic sync uploads only pending years. Pending admin edits take precedence on refresh; other conflicts require confirmation, and declining them pauses automatic publishing. Keep JSON exports as backups. The configured project URL and publishable key are public browser configuration; write access is controlled by row-level security. Without configuration, cloud controls remain disabled and local features are unchanged.
 
-After signing in, the site checks that the account is in `flockville_admins` before loading the private archive. If access fails or a request times out, the cloud status explains the error and **Load Cloud History** can be used to retry. **Publish Local History** becomes available after access is verified and at least one year is saved in this browser.
+After signing in, the site separately checks that the account is in `flockville_admins` before allowing publishing; non-admins can still read the archive. If access fails or a request times out, the cloud status explains the error and **Refresh Cloud History** can retry. **Publish Local History** becomes available after publishing access is verified and at least one year is saved in this browser.
 
 Deleting a saved year also deletes its cloud copy only after cloud history has been successfully loaded without unresolved conflicts. Otherwise the confirmation explains that deletion is local only, and the cloud copy can be restored by loading cloud history.
 
