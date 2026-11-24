@@ -450,6 +450,14 @@ th[aria-sort="descending"] .ability-sort::after {
   gap: 10px;
 }
 
+.cloud-history-controls[hidden] {
+  display: none;
+}
+
+#supabasePasswordSetup {
+  grid-column: 1 / -1;
+}
+
 .cloud-history-controls label {
   flex: 1 1 210px;
 }
@@ -463,7 +471,8 @@ th[aria-sort="descending"] .ability-sort::after {
   margin-top: 4px;
 }
 
-.cloud-history-controls input[type="email"] {
+.cloud-history-controls input[type="email"],
+.cloud-history-controls input[type="password"] {
   min-height: 44px;
 }
 

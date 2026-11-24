@@ -667,10 +667,19 @@ function renderSupabaseControls() {
   const configured = supabaseHistoryClient.isConfigured();
   const signedIn = supabaseHistoryClient.isAuthenticated();
   const email = document.getElementById("supabaseEmail");
+  const password = document.getElementById("supabasePassword");
+  const passwordLabel = document.getElementById("supabasePasswordLabel");
+  const passwordSignIn = document.getElementById("supabasePasswordSignInBtn");
+  const passwordSetup = document.getElementById("supabasePasswordSetup");
   const signIn = document.getElementById("supabaseSignInBtn");
   const load = document.getElementById("supabaseLoadBtn");
   const signOut = document.getElementById("supabaseSignOutBtn");
   if (signIn) signIn.disabled = !configured || signedIn;
+  if (passwordSignIn) passwordSignIn.disabled = !configured || signedIn;
+  if (passwordLabel) passwordLabel.hidden = signedIn;
+  if (passwordSignIn) passwordSignIn.hidden = signedIn;
+  if (passwordSetup) passwordSetup.hidden = !signedIn;
+  if (password) password.disabled = !configured || signedIn;
   if (email) email.disabled = !configured || signedIn;
   if (load) load.disabled = !configured;
   updateSupabaseButtons();
@@ -713,6 +722,51 @@ async function requestSupabaseSignIn() {
   } catch (error) {
     setSupabaseStatus(`Could not send sign-in link: ${error.message}`);
     showToast(error.message);
+  }
+}
+
+async function requestSupabasePasswordSignIn() {
+  const email = document.getElementById("supabaseEmail");
+  const password = document.getElementById("supabasePassword");
+  const button = document.getElementById("supabasePasswordSignInBtn");
+  if (button.disabled) return;
+  button.disabled = true;
+  try {
+    await supabaseHistoryClient.signInWithPassword(email.value, password.value);
+    password.value = "";
+    if (cloudLoadRun) await cloudLoadRun;
+    renderSupabaseControls();
+    await loadSupabaseHistory();
+  } catch (error) {
+    setSupabaseStatus(`Could not sign in: ${error.message}`);
+    showToast("Could not sign in. Check your email and password.");
+  } finally {
+    password.value = "";
+    button.disabled = !supabaseHistoryClient.isConfigured() || supabaseHistoryClient.isAuthenticated();
+  }
+}
+
+async function requestSupabasePasswordUpdate() {
+  const password = document.getElementById("supabaseNewPassword");
+  const confirmation = document.getElementById("supabaseConfirmPassword");
+  const button = document.getElementById("supabaseSetPasswordBtn");
+  if (!password.value || password.value !== confirmation.value) {
+    setSupabaseStatus("Enter the same new password in both fields.");
+    return;
+  }
+  button.disabled = true;
+  try {
+    await supabaseHistoryClient.updatePassword(password.value);
+    password.value = "";
+    confirmation.value = "";
+    setSupabaseStatus("Password updated. Next time, sign in with your admin email and password.");
+    showToast("Password updated.");
+  } catch (error) {
+    setSupabaseStatus(`Could not update password: ${error.message}`);
+  } finally {
+    password.value = "";
+    confirmation.value = "";
+    button.disabled = false;
   }
 }
 
@@ -850,6 +904,10 @@ async function signOutSupabase() {
   } finally {
     cloudHistoryReady = false;
     cloudAccessVerified = false;
+    ["supabasePassword", "supabaseNewPassword", "supabaseConfirmPassword"].forEach((id) => {
+      const input = document.getElementById(id);
+      if (input) input.value = "";
+    });
     renderSupabaseControls();
     if (signOutError) setSupabaseStatus(`Supabase sign-out failed: ${signOutError.message}`);
   }
@@ -3758,6 +3816,14 @@ els.seasonYearInput.addEventListener("change", () => {
 });
 
 document.getElementById("supabaseSignInBtn").addEventListener("click", requestSupabaseSignIn);
+document.getElementById("supabasePasswordSignInBtn").addEventListener("click", requestSupabasePasswordSignIn);
+document.getElementById("supabasePassword").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    requestSupabasePasswordSignIn();
+  }
+});
+document.getElementById("supabaseSetPasswordBtn").addEventListener("click", requestSupabasePasswordUpdate);
 document.getElementById("supabaseLoadBtn").addEventListener("click", () => loadSupabaseHistory({ manual: true }));
 document.getElementById("cloudRetryBtn")?.addEventListener("click", () => {
   cloudRetryAttempts = 0;

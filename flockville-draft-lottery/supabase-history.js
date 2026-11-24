@@ -177,6 +177,37 @@
       });
     }
 
+    async function signInWithPassword(email, password) {
+      const cleanEmail = String(email || "").trim();
+      if (!cleanEmail || !cleanEmail.includes("@")) throw new Error("Enter a valid admin email address.");
+      if (!password) throw new Error("Enter your password.");
+      const result = await request("/auth/v1/token?grant_type=password", {
+        method: "POST",
+        anonymous: true,
+        body: { email: cleanEmail, password },
+      });
+      if (!result?.access_token || !result?.refresh_token || !result?.user) {
+        throw new Error("Supabase returned an invalid sign-in response. Please try again.");
+      }
+      saveSession({
+        access_token: result.access_token,
+        refresh_token: result.refresh_token,
+        token_type: result.token_type || "bearer",
+        expires_at: Number(result.expires_at) || Date.now() / 1000 + Number(result.expires_in || 3600),
+        user: result.user,
+      });
+      return result.user;
+    }
+
+    async function updatePassword(password) {
+      if (!session?.access_token) throw new Error("Sign in before setting a password.");
+      if (!password) throw new Error("Enter a new password.");
+      const user = await request("/auth/v1/user", { method: "PUT", body: { password } });
+      if (!user?.id) throw new Error("Supabase did not confirm the password update.");
+      saveSession({ ...session, user });
+      return user;
+    }
+
     async function signOut() {
       if (session?.access_token) {
         try {
@@ -276,7 +307,9 @@
         if (session) saveSession({ ...session, user });
       },
       signInWithEmail,
+      signInWithPassword,
       signOut,
+      updatePassword,
       userEmail: () => session?.user?.email || "",
     };
   }

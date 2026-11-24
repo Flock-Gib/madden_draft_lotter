@@ -75,6 +75,44 @@ test("sign-in requests existing users only and never put service credentials in 
   await assert.rejects(client.saveHistory({ 2026: { year: 2026 } }), /Sign in to Supabase/);
 });
 
+test("password sign-in stores a session without the password and uses it for admin checks and updates", async () => {
+  const calls = [];
+  const storage = new Map();
+  const user = { id: "admin-id", email: "admin@example.com" };
+  const client = makeClient(async (url, options) => {
+    calls.push({ url, options });
+    if (url.includes("grant_type=password")) return response(200, {
+      access_token: "access", refresh_token: "refresh", expires_in: 3600, user,
+    });
+    if (url.endsWith("/rpc/is_flockville_admin")) return response(200, true);
+    if (url.endsWith("/auth/v1/user") && options.method === "PUT") return response(200, user);
+    return response(200, []);
+  }, storage);
+  await client.initialize({ hash: "", pathname: "/", search: "" });
+  assert.deepEqual(await client.signInWithPassword(" admin@example.com ", "private-password"), user);
+  assert.deepEqual(JSON.parse(calls[0].options.body), { email: "admin@example.com", password: "private-password" });
+  assert.equal(calls[0].options.headers.Authorization, undefined);
+  assert.equal(client.userEmail(), user.email);
+  assert.equal(await client.checkAdmin(), true);
+  assert.equal(calls[1].options.headers.Authorization, "Bearer access");
+  await client.updatePassword("different-password");
+  assert.equal(calls[2].options.headers.Authorization, "Bearer access");
+  assert.deepEqual(JSON.parse(calls[2].options.body), { password: "different-password" });
+  assert.doesNotMatch(storage.get("flockvilleSupabaseSession"), /private-password|different-password/);
+});
+
+test("password auth failures and invalid responses never create a session", async () => {
+  const client = makeClient(async (_url, options) => {
+    if (JSON.parse(options.body).password === "invalid-response") return response(200, {});
+    return response(400, { message: "Invalid login credentials" });
+  });
+  await client.initialize({ hash: "", pathname: "/", search: "" });
+  await assert.rejects(client.signInWithPassword("admin@example.com", "wrong"), /Invalid login credentials/);
+  await assert.rejects(client.signInWithPassword("admin@example.com", "invalid-response"), /invalid sign-in response/);
+  await assert.rejects(client.updatePassword("new"), /Sign in/);
+  assert.equal(client.isAuthenticated(), false);
+});
+
 test("expired sessions refresh once and serialized saves/deletes preserve their order", async () => {
   const storage = new Map([["flockvilleSupabaseSession", JSON.stringify({
     access_token: "expired", refresh_token: "refresh", expires_at: 1,

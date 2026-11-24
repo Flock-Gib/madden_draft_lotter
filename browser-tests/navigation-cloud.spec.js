@@ -44,6 +44,95 @@ async function completeDemoDraw(page) {
   await expect(page.locator("#statusText")).toContainText("complete");
 }
 
+test("admin sets a password after one email-link login, then signs in with it and publishes pending history", async ({ page }) => {
+  const user = { id: "admin", email: "admin@example.com" };
+  let write = null;
+  let passwordSignIns = 0;
+  let passwordChanges = 0;
+  await page.route("https://ybortnssqkjvrzggmfeb.supabase.co/**", async (route) => {
+    const request = route.request();
+    const url = request.url();
+    let body;
+    if (url.includes("grant_type=password")) {
+      passwordSignIns++;
+      expect(request.postDataJSON()).toEqual({ email: user.email, password: "Test password 123!" });
+      body = { access_token: "password-access", refresh_token: "refresh", user, expires_in: 3600 };
+    } else if (url.includes("/auth/v1/user") && request.method() === "PUT") {
+      passwordChanges++;
+      expect(request.postDataJSON()).toEqual({ password: "Test password 123!" });
+      body = user;
+    } else if (url.includes("/auth/v1/user")) body = user;
+    else if (url.includes("/auth/v1/logout")) body = {};
+    else if (url.includes("/rpc/")) body = true;
+    else if (request.method() === "POST") {
+      write = request.postDataJSON();
+      body = write;
+    } else body = write || [];
+    await route.fulfill({ status: 200, json: body });
+  });
+  await page.goto("/#access_token=example&refresh_token=example");
+  await expect(page.locator("#supabaseStatus")).toContainText("no saved lottery years yet");
+  await page.locator("#supabaseNewPassword").fill("Test password 123!");
+  await page.locator("#supabaseConfirmPassword").fill("mismatch");
+  await page.locator("#supabaseSetPasswordBtn").click();
+  await expect(page.locator("#supabaseStatus")).toContainText("same new password");
+  expect(passwordChanges).toBe(0);
+  await page.locator("#supabaseConfirmPassword").fill("Test password 123!");
+  await page.locator("#supabaseSetPasswordBtn").click();
+  await expect(page.locator("#supabaseStatus")).toContainText("Password updated");
+  await expect(page.locator("#supabaseNewPassword")).toHaveValue("");
+  await page.locator("#supabaseSignOutBtn").click();
+  await expect(page.locator("#supabasePasswordSetup")).toBeHidden();
+  await completeDemoDraw(page);
+  await expect(page.locator("#lotterySaveStatus")).toContainText("not yet in Supabase");
+  await page.getByRole("navigation", { name: "Main sections" }).getByRole("link", { name: "History" }).click();
+  await page.locator("#supabaseEmail").fill(user.email);
+  await page.locator("#supabasePassword").fill("Test password 123!");
+  await page.locator("#supabasePassword").press("Enter");
+  await expect(page.locator("#supabaseSignOutBtn")).toBeVisible();
+  await expect(page.locator("#cloudSyncState")).toContainText("Saved to Supabase and confirmed: 2026");
+  expect(write[0].record.finalOrder).toHaveLength(8);
+  await expect(page.locator("#supabasePublishBtn")).toBeEnabled();
+  expect(passwordSignIns).toBe(1);
+  expect(passwordChanges).toBe(1);
+  const session = await page.evaluate(() => sessionStorage.getItem("flockvilleSupabaseSession"));
+  expect(session).not.toContain("Test password 123!");
+});
+
+test("password login cannot grant publishing access to a non-admin", async ({ page }) => {
+  await page.route("https://ybortnssqkjvrzggmfeb.supabase.co/**", async (route) => {
+    const url = route.request().url();
+    const body = url.includes("grant_type=password")
+      ? { access_token: "access", refresh_token: "refresh", user: { id: "user", email: "user@example.com" } }
+      : url.includes("/rpc/") ? false : [];
+    await route.fulfill({ status: 200, json: body });
+  });
+  await page.goto("/?page=history");
+  await expect(page.locator("#supabaseStatus")).toContainText("Anyone can read");
+  await page.locator("#supabaseEmail").fill("user@example.com");
+  await page.locator("#supabasePassword").fill("Test password 123!");
+  await page.locator("#supabasePasswordSignInBtn").click();
+  await expect(page.locator("#supabaseStatus")).toContainText("not authorized");
+  await expect(page.locator("#supabasePublishBtn")).toBeDisabled();
+});
+
+test("password sign-in failure is visible and does not enable publishing", async ({ page }) => {
+  await page.route("https://ybortnssqkjvrzggmfeb.supabase.co/**", async (route) => {
+    if (route.request().url().includes("grant_type=password")) {
+      await route.fulfill({ status: 400, json: { message: "Invalid login credentials" } });
+    } else await route.fulfill({ status: 200, json: [] });
+  });
+  await page.goto("/?page=history");
+  await expect(page.locator("#supabaseStatus")).toContainText("Anyone can read");
+  await page.locator("#supabaseEmail").fill("admin@example.com");
+  await page.locator("#supabasePassword").fill("wrong");
+  await page.locator("#supabasePasswordSignInBtn").click();
+  await expect(page.locator("#supabaseStatus")).toContainText("Invalid login credentials");
+  await expect(page.locator("#supabasePassword")).toHaveValue("");
+  await expect(page.locator("#supabasePublishBtn")).toBeDisabled();
+  await expect(page.locator("#supabasePasswordSetup")).toBeHidden();
+});
+
 test("public visitors can look up Supabase history and loaded teams are cross-checked", async ({ page }) => {
   const prior = history.createManualRecord({
     year: 2025, completeness: "top-three",
